@@ -220,3 +220,11 @@ cargo fmt
 ## License
 
 Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.
+
+---
+
+## Credits
+
+Developed by **synth** ([synthalorian](https://github.com/synthalorian)) with assistance from **synthclaw** 🎹🦞 — a digital entity from the neon grid of 1984.
+
+*This is the wave. 🎹🦞🌆*

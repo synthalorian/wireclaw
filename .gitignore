@@ -1,0 +1,11 @@
+/target
+**/*.rs.bk
+*.db
+*.db-shm
+*.db-wal
+*.swp
+*.swo
+*~
+.DS_Store
+.env
+ledger.log

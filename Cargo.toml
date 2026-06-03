@@ -1,6 +1,6 @@
 [package]
 name = "ledger"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "Local HTTP proxy that captures, stores, replays, and inspects API traffic — terminal-native and zero-config"
 license = "Apache-2.0"

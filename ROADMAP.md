@@ -2,7 +2,7 @@
 
 ## Current State
 Core loop works: HTTP/HTTPS proxy capture → SQLite storage → list/search/replay/export/TUI.
-30 tests passing. Release builds clean (zero warnings).
+53 tests passing. Release builds clean (6 dead_code warnings on stubbed modules).
 
 ---
 
@@ -78,14 +78,14 @@ Core loop works: HTTP/HTTPS proxy capture → SQLite storage → list/search/rep
 
 ### P3 — Advanced Features
 
-**10. Breakpoints / Intercept Mode**
+**10. Breakpoints / Intercept Mode** ✅
 - `ledger capture --intercept`
 - Pause on matching requests (by method, path, host)
 - Show request, allow modify/reject/forward
 - Resume or drop
 - **Why:** Charles Proxy's killer feature
 
-**11. Request Chaining / Variable Extraction**
+**11. Request Chaining / Variable Extraction** ✅
 - `ledger replay --chain` — replay sequence of requests
 - Extract values from response (JSONPath) into variables
 - Substitute variables into subsequent requests
@@ -99,13 +99,13 @@ Core loop works: HTTP/HTTPS proxy capture → SQLite storage → list/search/rep
 - Latency histogram
 - **Why:** Debugging performance issues
 
-**13. WebSocket Support**
+**13. WebSocket Support** 🟡
 - Capture WebSocket frames (text, binary, ping/pong)
 - Store as "exchanges" with direction (client→server, server→client)
 - Replay WebSocket conversations
 - **Why:** Modern APIs (GraphQL subscriptions, real-time data)
 
-**14. Pre/Post Request Scripts**
+**14. Pre/Post Request Scripts** ✅
 - Lua or JavaScript hooks
 - `pre-request.lua`: modify request before sending
 - `post-response.lua`: assert on response, extract data
@@ -121,16 +121,16 @@ Core loop works: HTTP/HTTPS proxy capture → SQLite storage → list/search/rep
 
 ## Suggested Session Order
 
-| Session | Focus | Items |
-|---------|-------|-------|
-| 1 | MITM HTTPS | #1 |
-| 2 | Replay fixes + diff | #2, #3 |
-| 3 | TUI polish | #4, #5 |
-| 4 | Power tools | #6, #7 |
-| 5 | Export + grouping | #8, #9 |
-| 6 | Advanced | #10, #11, #12 |
-| 7 | WebSocket + scripts | #13, #14 |
-| 8 | Packaging | #15, release |
+| Session | Focus | Items | Status |
+|---------|-------|-------|--------|
+| 1 | MITM HTTPS | #1 | ✅ Done |
+| 2 | Replay fixes + diff | #2, #3 | ✅ Done |
+| 3 | TUI polish | #4, #5 | ✅ Done |
+| 4 | Power tools | #6, #7 | ✅ Done |
+| 5 | Export + grouping | #8, #9 | ✅ Done |
+| 6 | Advanced | #10, #11, #12 | ✅ Done |
+| 7 | WebSocket + scripts | #13, #14 | 🟡 #13 stubbed, #14 done |
+| 8 | Packaging | #15, release | ✅ v0.2.0 tagged |
 
 ---
 

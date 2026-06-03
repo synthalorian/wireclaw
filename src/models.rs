@@ -19,6 +19,7 @@ pub struct CapturedRequest {
 }
 
 impl CapturedRequest {
+    #[allow(dead_code)]
     pub fn new(method: String, url: String, host: String, session: String) -> Self {
         Self {
             id: Uuid::new_v4().to_string(),
@@ -65,8 +66,9 @@ impl Exchange {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Filter {
+    pub session: Option<String>,
     pub method: Option<String>,
     pub path_pattern: Option<String>,
     pub status_code: Option<u16>,
@@ -75,21 +77,6 @@ pub struct Filter {
     pub body_contains: Option<String>,
     pub since: Option<DateTime<Utc>>,
     pub until: Option<DateTime<Utc>>,
-}
-
-impl Default for Filter {
-    fn default() -> Self {
-        Self {
-            method: None,
-            path_pattern: None,
-            status_code: None,
-            host: None,
-            header_match: None,
-            body_contains: None,
-            since: None,
-            until: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

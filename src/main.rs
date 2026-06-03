@@ -1,17 +1,25 @@
+mod cert;
+mod chain;
 mod cli;
 mod config;
 mod db;
 mod error;
 mod export;
+mod intercept;
 mod logger;
 mod models;
 mod proxy;
 mod replay;
+mod scripts;
 mod search;
+mod stats;
 mod tui;
+mod websocket;
 
 use anyhow::Result;
 use clap::Parser;
+use std::path::PathBuf;
+use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -19,15 +27,20 @@ async fn main() -> Result<()> {
     let config = config::load_config(&cli.config)?;
 
     match cli.command {
-        cli::Commands::Capture { session, verbose } => {
-            run_capture(&cli.addr, &session, verbose, &config).await
+        cli::Commands::Capture { session, verbose, intercept, intercept_rule } => {
+            run_capture(&cli.addr, &session, verbose, intercept, intercept_rule, &config).await
         }
         cli::Commands::Replay {
             id,
             count,
             dry_run,
+            diff,
+            edit,
             filter,
-        } => run_replay(id, count, dry_run, filter, &config).await,
+            chain,
+            pre_script,
+            post_script,
+        } => run_replay(id, count, dry_run, diff, edit, filter, chain, pre_script, post_script, &config).await,
         cli::Commands::List {
             session,
             limit,
@@ -53,6 +66,9 @@ async fn main() -> Result<()> {
             .await
         }
         cli::Commands::Tui { session } => run_tui(&session, &config).await,
+        cli::Commands::Stats { session } => run_stats(&session, &config).await,
+        cli::Commands::Init => run_init(&config).await,
+        cli::Commands::Ca { command } => run_ca(command, &config).await,
     }
 }
 
@@ -60,9 +76,11 @@ async fn run_capture(
     addr: &str,
     session: &str,
     verbose: bool,
+    intercept: bool,
+    intercept_rule: Option<String>,
     config: &config::Config,
 ) -> Result<()> {
-    eprintln!("[ledger] starting capture on {addr}, session={session}, verbose={verbose}");
+    eprintln!("[ledger] starting capture on {addr}, session={session}, verbose={verbose}, intercept={intercept}");
     let data_dir = config.data_dir.join("sessions");
     let db_path = data_dir.join(format!("{session}.db"));
     let pool = db::init_db(&db_path).await?;
@@ -74,7 +92,34 @@ async fn run_capture(
     let (tx, mut rx) = tokio::sync::mpsc::channel::<models::Exchange>(256);
     let logger = logger::Logger::new(pool.clone());
 
-    let proxy = std::sync::Arc::new(proxy::ProxyServer::new(listen_addr, tx));
+    let cert_dir = config.data_dir.join("certs");
+    let cert_mgr = Arc::new(cert::CertManager::load_or_create(&cert_dir)?);
+
+    // Build intercept rules if enabled
+    let intercept_rules = if intercept {
+        let mut rules = Vec::new();
+        if let Some(ref expr) = intercept_rule {
+            match crate::intercept::InterceptRule::parse(expr) {
+                Ok(rule) => rules.push(rule),
+                Err(e) => eprintln!("[ledger] warning: invalid intercept rule: {e}"),
+            }
+        }
+        // If no specific rule given, intercept everything
+        if rules.is_empty() {
+            rules.push(crate::intercept::InterceptRule::parse("").unwrap());
+        }
+        Some(rules)
+    } else {
+        None
+    };
+
+    let proxy = std::sync::Arc::new(proxy::ProxyServer::new(
+        listen_addr,
+        tx,
+        session.to_string(),
+        cert_mgr,
+        intercept_rules,
+    ));
     let proxy_handle = tokio::spawn(async move { proxy.run().await });
 
     let logger_handle = tokio::spawn(async move {
@@ -105,21 +150,44 @@ async fn run_replay(
     id: Option<String>,
     count: u32,
     dry_run: bool,
+    diff: bool,
+    edit: bool,
     filter: Option<String>,
+    chain: Option<String>,
+    pre_script: Option<String>,
+    post_script: Option<String>,
     config: &config::Config,
 ) -> Result<()> {
     let db_path = config.data_dir.join("sessions").join("default.db");
     let pool = db::init_db(&db_path).await?;
+
+    if let Some(chain_expr) = chain {
+        let engine = chain::ChainEngine::new(pool);
+        let steps = chain::ChainEngine::parse_chain(&chain_expr)?;
+        let vars = engine.replay_chain(&steps, dry_run).await?;
+        eprintln!("[ledger] chain complete. extracted variables:");
+        for (k, v) in &vars {
+            eprintln!("  ${{{k}}} = {v}");
+        }
+        return Ok(());
+    }
+
     let engine = replay::ReplayEngine::new(pool);
 
     match (id, filter) {
         (Some(request_id), _) => {
-            eprintln!("[ledger] replaying request {request_id} x{count} (dry_run={dry_run})");
-            engine.replay_by_id(&request_id, count, dry_run).await?;
+            eprintln!("[ledger] replaying request {request_id} x{count} (dry_run={dry_run}, diff={diff}, edit={edit})");
+            let pre = pre_script.as_deref();
+            let post = post_script.as_deref();
+            if edit {
+                engine.replay_by_id_with_edit(&request_id, count, dry_run, diff, pre, post).await?;
+            } else {
+                engine.replay_by_id(&request_id, count, dry_run, diff, pre, post).await?;
+            }
         }
         (None, Some(filter_expr)) => {
-            eprintln!("[ledger] replaying filtered requests: {filter_expr} (dry_run={dry_run})");
-            engine.replay_filtered(&filter_expr, dry_run).await?;
+            eprintln!("[ledger] replaying filtered requests: {filter_expr} (dry_run={dry_run}, diff={diff})");
+            engine.replay_filtered(&filter_expr, dry_run, diff, pre_script.as_deref(), post_script.as_deref()).await?;
         }
         (None, None) => {
             anyhow::bail!("specify --id or --filter for replay");
@@ -147,10 +215,34 @@ async fn run_list(
     );
     for exchange in &exchanges {
         let status = exchange.status_label();
-        eprintln!(
-            "  {} {} {} ({})",
-            exchange.request.method, exchange.request.path, status, exchange.request.host,
-        );
+        if headers || bodies {
+            eprintln!("  === {} {} {} ({}) ===", exchange.request.method, exchange.request.path, status, exchange.request.host);
+            if headers {
+                for (k, v) in &exchange.request.headers {
+                    eprintln!("    {k}: {v}");
+                }
+            }
+            if bodies
+                && let Some(ref body) = exchange.request.body {
+                    eprintln!("    body: {}", String::from_utf8_lossy(body));
+                }
+            if let Some(ref resp) = exchange.response {
+                if headers {
+                    for (k, v) in &resp.headers {
+                        eprintln!("    resp {k}: {v}");
+                    }
+                }
+                if bodies
+                    && let Some(ref body) = resp.body {
+                        eprintln!("    resp body: {}", String::from_utf8_lossy(body));
+                    }
+            }
+        } else {
+            eprintln!(
+                "  {} {} {} ({})",
+                exchange.request.method, exchange.request.path, status, exchange.request.host,
+            );
+        }
     }
     eprintln!("[ledger] {} exchanges", exchanges.len());
     Ok(())
@@ -174,6 +266,13 @@ async fn run_search(
         "[ledger] search '{query}' in field '{field}', session '{session}': {} results",
         results.len()
     );
+    for exchange in &results {
+        let status = exchange.status_label();
+        println!(
+            "  {} {} {} ({})",
+            exchange.request.method, exchange.request.path, status, exchange.request.host,
+        );
+    }
     Ok(())
 }
 
@@ -206,5 +305,105 @@ async fn run_tui(session: &str, config: &config::Config) -> Result<()> {
 
     let mut app = tui::App::new(pool, session.to_string());
     app.run().await?;
+    Ok(())
+}
+
+async fn run_ca(command: cli::CaCommands, config: &config::Config) -> Result<()> {
+    let cert_dir = config.data_dir.join("certs");
+    let mgr = cert::CertManager::load_or_create(&cert_dir)?;
+
+    match command {
+        cli::CaCommands::Generate => {
+            eprintln!("[ledger] CA certificate ready at {}", mgr.ca_cert_path().display());
+            eprintln!("[ledger] Install this CA in your browser/system to trust intercepted HTTPS traffic:");
+            eprintln!();
+            println!("{}", mgr.ca_cert_pem());
+            eprintln!();
+            eprintln!("[ledger] Trust instructions:");
+            eprintln!("  Linux (system-wide):  sudo cp {} /usr/local/share/ca-certificates/ledger.crt && sudo update-ca-certificates", mgr.ca_cert_path().display());
+            eprintln!("  Linux (Firefox):      Settings → Privacy & Security → Certificates → View Certificates → Import");
+            eprintln!("  macOS:                sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain {}", mgr.ca_cert_path().display());
+            eprintln!("  Chrome (all platforms): Settings → Privacy and security → Security → Manage certificates → Authorities → Import");
+        }
+        cli::CaCommands::Show => {
+            println!("{}", mgr.ca_cert_pem());
+        }
+    }
+
+    Ok(())
+}
+
+async fn run_stats(session: &str, config: &config::Config) -> Result<()> {
+    let db_path = config
+        .data_dir
+        .join("sessions")
+        .join(format!("{session}.db"));
+    let pool = db::init_db(&db_path).await?;
+
+    let stats = stats::compute_session_stats(&pool, session).await?;
+    let formatted = stats::format_stats(&stats, session);
+    println!("{formatted}");
+    Ok(())
+}
+
+async fn run_init(config: &config::Config) -> Result<()> {
+    let config_path = dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("~/.config"))
+        .join("ledger")
+        .join("config.toml");
+
+    if config_path.exists() {
+        eprintln!("[ledger] config already exists at {}", config_path.display());
+        eprintln!("[ledger] delete it first if you want to regenerate");
+        return Ok(());
+    }
+
+    std::fs::create_dir_all(config_path.parent().unwrap())?;
+
+    let config_toml = r#"# Ledger configuration file
+# Generated by `ledger init`
+
+# Address the proxy listens on
+listen_addr = "127.0.0.1:8080"
+
+# Directory for session databases and CA certificates
+# Default: platform-specific data dir (e.g. ~/.local/share/ledger on Linux)
+data_dir = "{data_dir}"
+
+[session]
+# Automatically create sessions on first capture
+auto_create = true
+# Default session name if none specified
+default_name = "default"
+
+[proxy]
+# Proxy listen address (same as top-level listen_addr by default)
+listen_addr = "127.0.0.1:8080"
+# Timeout for upstream connections in seconds
+timeout_secs = 30
+# Maximum body size to capture in bytes (10 MB)
+max_body_size = 10485760
+# Capture request/response headers
+capture_headers = true
+# Capture request/response bodies
+capture_bodies = true
+
+[replay]
+# Delay between replayed requests in milliseconds
+delay_ms = 0
+# Follow HTTP redirects when replaying
+follow_redirects = true
+# Maximum number of redirects to follow
+max_redirects = 10
+"#;
+
+    let data_dir_str = config.data_dir.to_string_lossy().replace('\\', "/");
+    let contents = config_toml.replace("{data_dir}", &data_dir_str);
+
+    std::fs::write(&config_path, contents)?;
+
+    eprintln!("[ledger] config written to {}", config_path.display());
+    eprintln!("[ledger] edit it to customize proxy settings, session defaults, and replay behavior");
+
     Ok(())
 }

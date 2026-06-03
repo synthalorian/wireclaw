@@ -20,6 +20,11 @@ clap = { version = "4", features = ["derive", "env", "color"] }
 hyper = { version = "1", features = ["client", "server", "http1", "http2"] }
 http-body-util = "0.1"
 hyper-util = { version = "0.1", features = ["client-legacy", "server", "http1", "http2", "tokio"] }
+hyper-rustls = { version = "0.27", features = ["http1", "http2", "tls12", "logging"] }
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "ring"] }
+rustls-pemfile = "2"
+rcgen = { version = "0.14", features = ["x509-parser", "pem"] }
+tokio-rustls = "0.26"
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
@@ -55,3 +60,14 @@ toml = "0.8"
 
 # Unique IDs
 uuid = { version = "1", features = ["v4", "serde"] }
+
+# Temporary files
+tempfile = "3"
+
+# WebSocket support
+tokio-tungstenite = { version = "0.26", features = ["connect"] }
+tungstenite = "0.26"
+futures-util = "0.3"
+
+# Lua scripting for pre/post request hooks
+mlua = { version = "0.10", features = ["lua54", "async", "send", "serialize"] }

@@ -4,6 +4,7 @@ use anyhow::Result;
 use regex::Regex;
 use sqlx::SqlitePool;
 
+use crate::db;
 use crate::models::{Exchange, Filter};
 
 pub struct SearchEngine {
@@ -16,15 +17,38 @@ impl SearchEngine {
     }
 
     pub async fn search(&self, query: &str, field: &str, session: &str) -> Result<Vec<Exchange>> {
-        todo!(
-            "Build SQL query with LIKE/REGEXP on field='{field}', query='{query}', session='{session}'"
-        )
+        let mut filter = Filter {
+            session: Some(session.to_string()),
+            ..Filter::default()
+        };
+
+        match field.to_lowercase().as_str() {
+            "method" => filter.method = Some(query.to_uppercase()),
+            "path" => filter.path_pattern = Some(query.to_string()),
+            "host" => filter.host = Some(query.to_string()),
+            "status" => {
+                filter.status_code = Some(
+                    query
+                        .parse()
+                        .map_err(|e| anyhow::anyhow!("invalid status code: {e}"))?,
+                )
+            }
+            "body" => filter.body_contains = Some(query.to_string()),
+            _ => {
+                // Default: search across path, host, and body
+                filter.path_pattern = Some(query.to_string());
+            }
+        }
+
+        db::search_exchanges(&self.pool, &filter).await
     }
 
-    pub async fn filter(&self, _filter: &Filter) -> Result<Vec<Exchange>> {
-        todo!("Construct dynamic WHERE clause from Filter struct and execute query")
+    #[allow(dead_code)]
+    pub async fn filter(&self, filter: &Filter) -> Result<Vec<Exchange>> {
+        db::search_exchanges(&self.pool, filter).await
     }
 
+    #[allow(dead_code)]
     pub fn compile_pattern(pattern: &str) -> Result<Regex> {
         Regex::new(pattern).map_err(|e| anyhow::anyhow!("invalid regex '{pattern}': {e}"))
     }

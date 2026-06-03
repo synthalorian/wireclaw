@@ -141,6 +141,18 @@ pub enum Commands {
         #[command(subcommand)]
         command: CaCommands,
     },
+
+    #[command(about = "Replay a WebSocket conversation from captured frames")]
+    WsReplay {
+        #[arg(short, long)]
+        id: String,
+
+        #[arg(short, long, default_value = "default")]
+        session: String,
+
+        #[arg(long, default_value_t = 0)]
+        delay_ms: u64,
+    },
 }
 
 #[derive(clap::Subcommand, Debug, Clone)]

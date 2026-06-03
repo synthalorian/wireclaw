@@ -114,6 +114,7 @@ async fn handle_http_proxy(
         .preserve_header_case(true)
         .title_case_headers(true)
         .serve_connection(io, svc)
+        .with_upgrades()
         .await
         .map_err(|e| anyhow::anyhow!("http proxy error: {e}"))?;
 
@@ -206,6 +207,7 @@ async fn handle_connect_tunnel(
         .preserve_header_case(true)
         .title_case_headers(true)
         .serve_connection(io, svc)
+        .with_upgrades()
         .await
     {
         eprintln!("[ledger] HTTPS proxy error for {}: {}", authority_for_error, e);
@@ -240,7 +242,7 @@ async fn handle_https_request(
 }
 
 async fn proxy_https_request(
-    req: Request<Incoming>,
+    mut req: Request<Incoming>,
     tx: mpsc::Sender<Exchange>,
     session: String,
     authority: String,
@@ -250,6 +252,13 @@ async fn proxy_https_request(
 
     // Check for WebSocket upgrade before consuming req
     let is_ws_upgrade = crate::websocket::is_websocket_upgrade(&req);
+
+    // Register for upgrade BEFORE consuming the request
+    let on_upgrade = if is_ws_upgrade {
+        Some(hyper::upgrade::on(&mut req))
+    } else {
+        None
+    };
 
     // Build outgoing request
     let (parts, body) = req.into_parts();
@@ -266,8 +275,8 @@ async fn proxy_https_request(
     let path_and_query = parts
         .uri
         .path_and_query()
-        .map(|p| p.as_str())
-        .unwrap_or("/");
+        .map(|p| p.as_str().to_string())
+        .unwrap_or_else(|| "/".to_string());
     let uri_str = format!("https://{}{}", authority, path_and_query);
     let uri = uri_str.parse::<Uri>()?;
 
@@ -413,6 +422,112 @@ async fn proxy_https_request(
         .map_err(|e| anyhow::anyhow!("forward HTTPS request failed: {e}"))?;
 
     let latency_ms = start.elapsed().as_millis() as u64;
+
+    // Handle WebSocket upgrade
+    if is_ws_upgrade && response.status() == hyper::StatusCode::SWITCHING_PROTOCOLS {
+        eprintln!("[ledger] WebSocket upgrade accepted: {} {}", method, uri);
+
+        // Capture the 101 response
+        let mut upgrade_resp_headers = std::collections::HashMap::new();
+        for (k, v) in response.headers() {
+            if let Ok(val) = v.to_str() {
+                upgrade_resp_headers.insert(k.as_str().to_lowercase(), val.to_string());
+            }
+        }
+        let captured_upgrade_resp = CapturedResponse {
+            id: uuid::Uuid::new_v4().to_string(),
+            request_id: request_id.clone(),
+            status: 101,
+            status_text: "Switching Protocols".to_string(),
+            headers: upgrade_resp_headers,
+            body: None,
+            timestamp: chrono::Utc::now(),
+            latency_ms,
+        };
+
+        // Store the upgrade handshake
+        let _ = tx.send(Exchange {
+            request: captured_req,
+            response: Some(captured_upgrade_resp),
+        }).await;
+
+        // Capture response headers before moving response
+        let response_headers: Vec<(hyper::header::HeaderName, hyper::header::HeaderValue)> = response
+            .headers()
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+
+        // Get upstream upgraded I/O
+        let upstream_upgrade = hyper::upgrade::on(response);
+
+        // Build 101 response for client
+        let mut client_resp = Response::builder().status(hyper::StatusCode::SWITCHING_PROTOCOLS);
+        for (k, v) in &response_headers {
+            client_resp = client_resp.header(k, v);
+        }
+
+        // Spawn bridge task
+        let tx_bridge = tx.clone();
+        let session_bridge = session.clone();
+        let authority_bridge = authority.clone();
+        let request_id_bridge = request_id.clone();
+        tokio::spawn(async move {
+            match on_upgrade.unwrap().await {
+                Ok(client_upgraded) => {
+                    match upstream_upgrade.await {
+                        Ok(upstream_upgraded) => {
+                            let client_io = hyper_util::rt::TokioIo::new(client_upgraded);
+                            let upstream_io = hyper_util::rt::TokioIo::new(upstream_upgraded);
+
+                            let client_ws = match tokio_tungstenite::accept_async(client_io).await {
+                                Ok(ws) => ws,
+                                Err(e) => {
+                                    eprintln!("[ledger] WebSocket accept failed: {e}");
+                                    return;
+                                }
+                            };
+
+                            // For upstream, we need to do the client handshake
+                            let upstream_uri = format!("wss://{}{}", authority_bridge, path_and_query);
+                            let upstream_req = match upstream_uri.parse::<Uri>() {
+                                Ok(u) => u,
+                                Err(e) => {
+                                    eprintln!("[ledger] WebSocket upstream URI parse failed: {e}");
+                                    return;
+                                }
+                            };
+                            let upstream_ws = match tokio_tungstenite::client_async(upstream_req, upstream_io).await {
+                                Ok((ws, _)) => ws,
+                                Err(e) => {
+                                    eprintln!("[ledger] WebSocket upstream connect failed: {e}");
+                                    return;
+                                }
+                            };
+
+                            if let Err(e) = crate::websocket::proxy_websocket_bridge(
+                                client_ws,
+                                upstream_ws,
+                                request_id_bridge,
+                                tx_bridge,
+                                session_bridge,
+                                authority_bridge,
+                            ).await {
+                                eprintln!("[ledger] WebSocket bridge error: {e}");
+                            }
+                        }
+                        Err(e) => eprintln!("[ledger] Upstream upgrade failed: {e}"),
+                    }
+                }
+                Err(e) => eprintln!("[ledger] Client upgrade failed: {e}"),
+            }
+        });
+
+        let body: BoxBody = Empty::<Bytes>::new()
+            .map_err(|never| match never {})
+            .boxed();
+        return Ok(client_resp.body(body)?);
+    }
 
     // Capture response
     let resp_status = response.status();

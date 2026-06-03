@@ -10,11 +10,10 @@ use std::collections::HashMap;
 
 use anyhow::{Context, Result};
 use futures_util::{SinkExt, StreamExt};
-use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::protocol::Message;
 
-use crate::models::{CapturedRequest, CapturedResponse, Exchange};
+use crate::models::{CapturedRequest, Exchange};
 
 /// Direction of a WebSocket frame.
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -104,51 +103,23 @@ impl WsFrame {
     }
 }
 
-/// Handle a WebSocket upgrade connection.
+/// Bridge two WebSocket streams, capturing each frame.
 ///
-/// This is called after the HTTP upgrade request/response have been exchanged.
-/// We have a raw TCP stream to the client (after the 101 response was sent).
-/// We need to:
-/// 1. Accept the WebSocket from the client side
-/// 2. Connect to the upstream WebSocket
-/// 3. Proxy frames bidirectionally, capturing each one
-pub async fn proxy_websocket(
-    client_stream: TcpStream,
-    upstream_addr: String,
+/// `client_ws` is the WebSocket connection to the client (after our TLS termination).
+/// `upstream_ws` is the WebSocket connection to the upstream server.
+pub async fn proxy_websocket_bridge<
+    C: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+    U: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+>(
+    client_ws: tokio_tungstenite::WebSocketStream<C>,
+    upstream_ws: tokio_tungstenite::WebSocketStream<U>,
     request_id: String,
     exchange_tx: mpsc::Sender<Exchange>,
     session: String,
-    captured_upgrade_request: CapturedRequest,
-    captured_upgrade_response: CapturedResponse,
+    upstream_addr: String,
 ) -> Result<()> {
-    // First, send the upgrade exchange to storage
-    let _ = exchange_tx
-        .send(Exchange {
-            request: captured_upgrade_request,
-            response: Some(captured_upgrade_response),
-        })
-        .await;
-
-    // Accept WebSocket from client
-    let client_ws = tokio_tungstenite::accept_async(client_stream)
-        .await
-        .context("failed to accept client WebSocket")?;
-
-    // Connect to upstream WebSocket
-    let upstream_tcp = TcpStream::connect(&upstream_addr)
-        .await
-        .with_context(|| format!("failed to connect to upstream WebSocket at {upstream_addr}"))?;
-
-    // For upstream, we need to do the WS handshake ourselves
-    let upstream_uri = format!("ws://{}", upstream_addr);
-    let upstream_ws = tokio_tungstenite::client_async(upstream_uri, upstream_tcp)
-        .await
-        .context("failed to connect upstream WebSocket")?
-        .0;
-
-    // Proxy frames bidirectionally using futures_util::StreamExt
-    let (mut client_sink, mut client_stream) = futures_util::stream::StreamExt::split(client_ws);
-    let (mut upstream_sink, mut upstream_stream) = futures_util::stream::StreamExt::split(upstream_ws);
+    let (mut client_sink, mut client_stream) = client_ws.split();
+    let (mut upstream_sink, mut upstream_stream) = upstream_ws.split();
 
     let request_id_c2s = request_id.clone();
     let request_id_s2c = request_id.clone();
@@ -157,6 +128,7 @@ pub async fn proxy_websocket(
     let upstream_addr_c2s = upstream_addr.clone();
     let upstream_addr_s2c = upstream_addr;
     let session_c2s = session.clone();
+    let session_s2c = session;
 
     // Client -> Server
     let c2s = tokio::spawn(async move {
@@ -220,7 +192,7 @@ pub async fn proxy_websocket(
                     },
                     body: frame.payload.clone(),
                     timestamp: frame.timestamp,
-                    session: session.clone(),
+                    session: session_s2c.clone(),
                 },
                 response: None,
             }).await;
@@ -271,7 +243,7 @@ pub async fn replay_websocket(
         .await
         .with_context(|| format!("failed to connect to {uri}"))?;
 
-    let (mut sink, mut stream) = futures_util::stream::StreamExt::split(ws_stream);
+    let (mut sink, mut stream) = ws_stream.split();
 
     // Spawn a task to read server responses
     let read_handle = tokio::spawn(async move {

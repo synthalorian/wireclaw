@@ -6,6 +6,7 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use std::path::Path;
 
 use crate::models::{CapturedRequest, CapturedResponse, Exchange, Filter, Session};
+use crate::websocket::{WsDirection, WsFrame};
 
 const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS sessions (
@@ -39,11 +40,21 @@ CREATE TABLE IF NOT EXISTS responses (
     latency_ms  INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS ws_frames (
+    id          TEXT PRIMARY KEY,
+    request_id  TEXT NOT NULL REFERENCES requests(id),
+    direction   TEXT NOT NULL,
+    opcode      TEXT NOT NULL,
+    payload     BLOB,
+    timestamp   TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_requests_session ON requests(session);
 CREATE INDEX IF NOT EXISTS idx_requests_method ON requests(method);
 CREATE INDEX IF NOT EXISTS idx_requests_host ON requests(host);
 CREATE INDEX IF NOT EXISTS idx_requests_timestamp ON requests(timestamp);
 CREATE INDEX IF NOT EXISTS idx_responses_request_id ON responses(request_id);
+CREATE INDEX IF NOT EXISTS idx_ws_frames_request_id ON ws_frames(request_id);
 "#;
 
 pub async fn init_db(db_path: &Path) -> Result<SqlitePool> {
@@ -249,7 +260,74 @@ pub async fn create_session(pool: &SqlitePool, session: &Session) -> Result<()> 
     Ok(())
 }
 
+pub async fn store_ws_frame(pool: &SqlitePool, frame: &WsFrame) -> Result<()> {
+    let direction = match frame.direction {
+        WsDirection::ClientToServer => "c2s",
+        WsDirection::ServerToClient => "s2c",
+    };
+    let payload = frame.payload.as_deref();
+
+    sqlx::query(
+        "INSERT INTO ws_frames (id, request_id, direction, opcode, payload, timestamp)
+         VALUES (?, ?, ?, ?, ?, ?)"
+    )
+    .bind(&frame.id)
+    .bind(&frame.request_id)
+    .bind(direction)
+    .bind(&frame.opcode)
+    .bind(payload)
+    .bind(frame.timestamp.to_rfc3339())
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn list_ws_frames(pool: &SqlitePool, request_id: &str) -> Result<Vec<WsFrame>> {
+    let rows: Vec<WsFrameRow> = sqlx::query_as(
+        "SELECT id, request_id, direction, opcode, payload, timestamp FROM ws_frames WHERE request_id = ? ORDER BY timestamp"
+    )
+    .bind(request_id)
+    .fetch_all(pool)
+    .await?;
+
+    rows.into_iter().map(|r| r.into_ws_frame()).collect::<Result<Vec<_>>>()
+}
+
+pub async fn get_exchange_by_request_id(pool: &SqlitePool, request_id: &str) -> Result<Option<Exchange>> {
+    get_request_by_id(pool, request_id).await
+}
+
 // ── Row structs for sqlx::query_as ──────────────────────────────────────────
+
+#[derive(sqlx::FromRow)]
+struct WsFrameRow {
+    id: String,
+    request_id: String,
+    direction: String,
+    opcode: String,
+    payload: Option<Vec<u8>>,
+    timestamp: String,
+}
+
+impl WsFrameRow {
+    fn into_ws_frame(self) -> Result<WsFrame> {
+        let direction = match self.direction.as_str() {
+            "s2c" => WsDirection::ServerToClient,
+            _ => WsDirection::ClientToServer,
+        };
+        Ok(WsFrame {
+            id: self.id,
+            request_id: self.request_id,
+            direction,
+            opcode: self.opcode,
+            payload: self.payload,
+            timestamp: chrono::DateTime::parse_from_rfc3339(&self.timestamp)
+                .map_err(|e| anyhow::anyhow!("parse timestamp: {e}"))?
+                .with_timezone(&chrono::Utc),
+        })
+    }
+}
 
 #[derive(sqlx::FromRow)]
 struct ExchangeRow {

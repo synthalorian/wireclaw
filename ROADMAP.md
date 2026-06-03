@@ -2,7 +2,7 @@
 
 ## Current State
 Core loop works: HTTP/HTTPS proxy capture → SQLite storage → list/search/replay/export/TUI.
-53 tests passing. Release builds clean (6 dead_code warnings on stubbed modules).
+53 tests passing. Release builds clean (0 warnings). WebSocket frames captured and replayable.
 
 ---
 
@@ -99,10 +99,11 @@ Core loop works: HTTP/HTTPS proxy capture → SQLite storage → list/search/rep
 - Latency histogram
 - **Why:** Debugging performance issues
 
-**13. WebSocket Support** 🟡
-- Capture WebSocket frames (text, binary, ping/pong)
-- Store as "exchanges" with direction (client→server, server→client)
-- Replay WebSocket conversations
+**13. WebSocket Support** ✅
+- Capture WebSocket upgrade handshake (HTTP 101 request/response)
+- Proxy WebSocket frames bidirectionally via `hyper::upgrade` + `tokio-tungstenite`
+- Store frames in `ws_frames` table with direction (client→server, server→client), opcode, payload
+- `ledger ws-replay --id <req_id>` replays captured WS conversations
 - **Why:** Modern APIs (GraphQL subscriptions, real-time data)
 
 **14. Pre/Post Request Scripts** ✅
@@ -129,7 +130,7 @@ Core loop works: HTTP/HTTPS proxy capture → SQLite storage → list/search/rep
 | 4 | Power tools | #6, #7 | ✅ Done |
 | 5 | Export + grouping | #8, #9 | ✅ Done |
 | 6 | Advanced | #10, #11, #12 | ✅ Done |
-| 7 | WebSocket + scripts | #13, #14 | 🟡 #13 stubbed, #14 done |
+| 7 | WebSocket + scripts | #13, #14 | ✅ Done |
 | 8 | Packaging | #15, release | ✅ v0.2.0 tagged |
 
 ---

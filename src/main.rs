@@ -69,6 +69,7 @@ async fn main() -> Result<()> {
         cli::Commands::Stats { session } => run_stats(&session, &config).await,
         cli::Commands::Init => run_init(&config).await,
         cli::Commands::Ca { command } => run_ca(command, &config).await,
+        cli::Commands::WsReplay { id, session, delay_ms } => run_ws_replay(&id, &session, delay_ms, &config).await,
     }
 }
 
@@ -124,6 +125,33 @@ async fn run_capture(
 
     let logger_handle = tokio::spawn(async move {
         while let Some(exchange) = rx.recv().await {
+            // Check if this is a WS frame exchange (method == "WS")
+            if exchange.request.method == "WS" {
+                // Extract frame info from headers and store it
+                let direction = exchange.request.headers.get("x-ledger-ws-direction")
+                    .map(|s| s.as_str())
+                    .unwrap_or("client->server");
+                let opcode = exchange.request.headers.get("x-ledger-ws-opcode")
+                    .cloned()
+                    .unwrap_or_else(|| "binary".to_string());
+                let ws_direction = if direction == "server->client" {
+                    crate::websocket::WsDirection::ServerToClient
+                } else {
+                    crate::websocket::WsDirection::ClientToServer
+                };
+                let frame = crate::websocket::WsFrame {
+                    id: exchange.request.id.clone(),
+                    request_id: exchange.request.id.clone(), // Will be overwritten
+                    direction: ws_direction,
+                    opcode,
+                    payload: exchange.request.body.clone(),
+                    timestamp: exchange.request.timestamp,
+                };
+                if let Err(e) = logger.log_ws_frame(&frame).await {
+                    eprintln!("[ledger] failed to log ws frame: {e}");
+                }
+                continue;
+            }
             if let Err(e) = logger.log_exchange(&exchange).await {
                 eprintln!("[ledger] failed to log exchange: {e}");
             }
@@ -405,5 +433,36 @@ max_redirects = 10
     eprintln!("[ledger] config written to {}", config_path.display());
     eprintln!("[ledger] edit it to customize proxy settings, session defaults, and replay behavior");
 
+    Ok(())
+}
+
+async fn run_ws_replay(
+    request_id: &str,
+    session: &str,
+    delay_ms: u64,
+    config: &config::Config,
+) -> Result<()> {
+    let db_path = config
+        .data_dir
+        .join("sessions")
+        .join(format!("{session}.db"));
+    let pool = db::init_db(&db_path).await?;
+
+    // Find the original request to get the host
+    let exchange = db::get_exchange_by_request_id(&pool, request_id).await?
+        .ok_or_else(|| anyhow::anyhow!("request {} not found", request_id))?;
+
+    let host = exchange.request.host;
+    eprintln!("[ledger] ws-replay: connecting to {} for request {}", host, request_id);
+
+    // Load all WS frames for this request_id
+    let frames = db::list_ws_frames(&pool, request_id).await?;
+    if frames.is_empty() {
+        anyhow::bail!("no WebSocket frames found for request {}", request_id);
+    }
+
+    eprintln!("[ledger] ws-replay: replaying {} frames", frames.len());
+    crate::websocket::replay_websocket(&host, &frames, delay_ms).await?;
+    eprintln!("[ledger] ws-replay: complete");
     Ok(())
 }

@@ -53,6 +53,7 @@ impl ScriptEngine {
     }
 
     /// Load variables into the Lua globals.
+    #[allow(dead_code)]
     pub fn load_vars(&self, vars: HashMap<String, String>) {
         *self.vars.borrow_mut() = vars;
     }
@@ -259,6 +260,7 @@ impl ScriptEngine {
     }
 
     /// Get the current variables.
+    #[allow(dead_code)]
     pub fn get_vars(&self) -> HashMap<String, String> {
         self.vars.borrow().clone()
     }

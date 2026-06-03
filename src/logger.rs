@@ -5,6 +5,7 @@ use sqlx::SqlitePool;
 
 use crate::db;
 use crate::models::{CapturedRequest, CapturedResponse, Exchange};
+use crate::websocket::WsFrame;
 
 pub struct Logger {
     pool: SqlitePool,
@@ -29,5 +30,9 @@ impl Logger {
             self.log_response(response).await?;
         }
         Ok(())
+    }
+
+    pub async fn log_ws_frame(&self, frame: &WsFrame) -> Result<()> {
+        db::store_ws_frame(&self.pool, frame).await
     }
 }

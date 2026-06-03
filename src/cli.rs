@@ -44,6 +44,12 @@ pub enum Commands {
 
         #[arg(long, default_value_t = false)]
         verbose: bool,
+
+        #[arg(long, default_value_t = false)]
+        intercept: bool,
+
+        #[arg(long)]
+        intercept_rule: Option<String>,
     },
 
     #[command(about = "Replay a previously captured request")]
@@ -57,8 +63,23 @@ pub enum Commands {
         #[arg(long, default_value_t = false)]
         dry_run: bool,
 
+        #[arg(long, default_value_t = false)]
+        diff: bool,
+
+        #[arg(long, default_value_t = false)]
+        edit: bool,
+
         #[arg(short, long)]
         filter: Option<String>,
+
+        #[arg(long)]
+        chain: Option<String>,
+
+        #[arg(long)]
+        pre_script: Option<String>,
+
+        #[arg(long)]
+        post_script: Option<String>,
     },
 
     #[command(about = "List captured requests in a session")]
@@ -105,6 +126,30 @@ pub enum Commands {
         #[arg(short, long, default_value = "default")]
         session: String,
     },
+
+    #[command(about = "Show session statistics and metrics")]
+    Stats {
+        #[arg(short, long, default_value = "default")]
+        session: String,
+    },
+
+    #[command(about = "Initialize configuration file")]
+    Init,
+
+    #[command(about = "Certificate authority management")]
+    Ca {
+        #[command(subcommand)]
+        command: CaCommands,
+    },
+}
+
+#[derive(clap::Subcommand, Debug, Clone)]
+pub enum CaCommands {
+    #[command(about = "Generate a new CA certificate (or show existing)")]
+    Generate,
+
+    #[command(about = "Print the CA certificate PEM")]
+    Show,
 }
 
 #[derive(clap::ValueEnum, Debug, Clone, Copy)]
@@ -112,4 +157,5 @@ pub enum ExportFormat {
     Har,
     Curl,
     Raw,
+    Postman,
 }

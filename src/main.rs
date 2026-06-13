@@ -3,7 +3,6 @@ mod chain;
 mod cli;
 mod config;
 mod db;
-mod error;
 mod export;
 mod intercept;
 mod logger;
@@ -21,14 +20,40 @@ use clap::Parser;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+#[derive(Debug, Clone, Default)]
+struct ReplayArgs {
+    id: Option<String>,
+    count: u32,
+    dry_run: bool,
+    diff: bool,
+    edit: bool,
+    filter: Option<String>,
+    chain: Option<String>,
+    pre_script: Option<String>,
+    post_script: Option<String>,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = cli::Cli::parse();
     let config = config::load_config(&cli.config)?;
 
     match cli.command {
-        cli::Commands::Capture { session, verbose, intercept, intercept_rule } => {
-            run_capture(&cli.addr, &session, verbose, intercept, intercept_rule, &config).await
+        cli::Commands::Capture {
+            session,
+            verbose,
+            intercept,
+            intercept_rule,
+        } => {
+            run_capture(
+                &cli.addr,
+                &session,
+                verbose,
+                intercept,
+                intercept_rule,
+                &config,
+            )
+            .await
         }
         cli::Commands::Replay {
             id,
@@ -40,7 +65,23 @@ async fn main() -> Result<()> {
             chain,
             pre_script,
             post_script,
-        } => run_replay(id, count, dry_run, diff, edit, filter, chain, pre_script, post_script, &config).await,
+        } => {
+            run_replay(
+                ReplayArgs {
+                    id,
+                    count,
+                    dry_run,
+                    diff,
+                    edit,
+                    filter,
+                    chain,
+                    pre_script,
+                    post_script,
+                },
+                &config,
+            )
+            .await
+        }
         cli::Commands::List {
             session,
             limit,
@@ -69,7 +110,11 @@ async fn main() -> Result<()> {
         cli::Commands::Stats { session } => run_stats(&session, &config).await,
         cli::Commands::Init => run_init(&config).await,
         cli::Commands::Ca { command } => run_ca(command, &config).await,
-        cli::Commands::WsReplay { id, session, delay_ms } => run_ws_replay(&id, &session, delay_ms, &config).await,
+        cli::Commands::WsReplay {
+            id,
+            session,
+            delay_ms,
+        } => run_ws_replay(&id, &session, delay_ms, &config).await,
     }
 }
 
@@ -81,7 +126,9 @@ async fn run_capture(
     intercept_rule: Option<String>,
     config: &config::Config,
 ) -> Result<()> {
-    eprintln!("[ledger] starting capture on {addr}, session={session}, verbose={verbose}, intercept={intercept}");
+    eprintln!(
+        "[ledger] starting capture on {addr}, session={session}, verbose={verbose}, intercept={intercept}"
+    );
     let data_dir = config.data_dir.join("sessions");
     let db_path = data_dir.join(format!("{session}.db"));
     let pool = db::init_db(&db_path).await?;
@@ -107,7 +154,7 @@ async fn run_capture(
         }
         // If no specific rule given, intercept everything
         if rules.is_empty() {
-            rules.push(crate::intercept::InterceptRule::parse("").unwrap());
+            rules.push(crate::intercept::InterceptRule::parse("")?);
         }
         Some(rules)
     } else {
@@ -128,10 +175,16 @@ async fn run_capture(
             // Check if this is a WS frame exchange (method == "WS")
             if exchange.request.method == "WS" {
                 // Extract frame info from headers and store it
-                let direction = exchange.request.headers.get("x-ledger-ws-direction")
+                let direction = exchange
+                    .request
+                    .headers
+                    .get("x-ledger-ws-direction")
                     .map(|s| s.as_str())
                     .unwrap_or("client->server");
-                let opcode = exchange.request.headers.get("x-ledger-ws-opcode")
+                let opcode = exchange
+                    .request
+                    .headers
+                    .get("x-ledger-ws-opcode")
                     .cloned()
                     .unwrap_or_else(|| "binary".to_string());
                 let ws_direction = if direction == "server->client" {
@@ -174,25 +227,14 @@ async fn run_capture(
     Ok(())
 }
 
-async fn run_replay(
-    id: Option<String>,
-    count: u32,
-    dry_run: bool,
-    diff: bool,
-    edit: bool,
-    filter: Option<String>,
-    chain: Option<String>,
-    pre_script: Option<String>,
-    post_script: Option<String>,
-    config: &config::Config,
-) -> Result<()> {
+async fn run_replay(args: ReplayArgs, config: &config::Config) -> Result<()> {
     let db_path = config.data_dir.join("sessions").join("default.db");
     let pool = db::init_db(&db_path).await?;
 
-    if let Some(chain_expr) = chain {
+    if let Some(chain_expr) = args.chain {
         let engine = chain::ChainEngine::new(pool);
         let steps = chain::ChainEngine::parse_chain(&chain_expr)?;
-        let vars = engine.replay_chain(&steps, dry_run).await?;
+        let vars = engine.replay_chain(&steps, args.dry_run).await?;
         eprintln!("[ledger] chain complete. extracted variables:");
         for (k, v) in &vars {
             eprintln!("  ${{{k}}} = {v}");
@@ -202,20 +244,45 @@ async fn run_replay(
 
     let engine = replay::ReplayEngine::new(pool);
 
-    match (id, filter) {
+    match (args.id, args.filter) {
         (Some(request_id), _) => {
-            eprintln!("[ledger] replaying request {request_id} x{count} (dry_run={dry_run}, diff={diff}, edit={edit})");
-            let pre = pre_script.as_deref();
-            let post = post_script.as_deref();
-            if edit {
-                engine.replay_by_id_with_edit(&request_id, count, dry_run, diff, pre, post).await?;
+            eprintln!(
+                "[ledger] replaying request {request_id} x{} (dry_run={}, diff={}, edit={})",
+                args.count, args.dry_run, args.diff, args.edit
+            );
+            let pre = args.pre_script.as_deref();
+            let post = args.post_script.as_deref();
+            if args.edit {
+                engine
+                    .replay_by_id_with_edit(
+                        &request_id,
+                        args.count,
+                        args.dry_run,
+                        args.diff,
+                        pre,
+                        post,
+                    )
+                    .await?;
             } else {
-                engine.replay_by_id(&request_id, count, dry_run, diff, pre, post).await?;
+                engine
+                    .replay_by_id(&request_id, args.count, args.dry_run, args.diff, pre, post)
+                    .await?;
             }
         }
         (None, Some(filter_expr)) => {
-            eprintln!("[ledger] replaying filtered requests: {filter_expr} (dry_run={dry_run}, diff={diff})");
-            engine.replay_filtered(&filter_expr, dry_run, diff, pre_script.as_deref(), post_script.as_deref()).await?;
+            eprintln!(
+                "[ledger] replaying filtered requests: {filter_expr} (dry_run={}, diff={})",
+                args.dry_run, args.diff
+            );
+            engine
+                .replay_filtered(
+                    &filter_expr,
+                    args.dry_run,
+                    args.diff,
+                    args.pre_script.as_deref(),
+                    args.post_script.as_deref(),
+                )
+                .await?;
         }
         (None, None) => {
             anyhow::bail!("specify --id or --filter for replay");
@@ -244,26 +311,27 @@ async fn run_list(
     for exchange in &exchanges {
         let status = exchange.status_label();
         if headers || bodies {
-            eprintln!("  === {} {} {} ({}) ===", exchange.request.method, exchange.request.path, status, exchange.request.host);
+            eprintln!(
+                "  === {} {} {} ({}) ===",
+                exchange.request.method, exchange.request.path, status, exchange.request.host
+            );
             if headers {
                 for (k, v) in &exchange.request.headers {
                     eprintln!("    {k}: {v}");
                 }
             }
-            if bodies
-                && let Some(ref body) = exchange.request.body {
-                    eprintln!("    body: {}", String::from_utf8_lossy(body));
-                }
+            if bodies && let Some(ref body) = exchange.request.body {
+                eprintln!("    body: {}", String::from_utf8_lossy(body));
+            }
             if let Some(ref resp) = exchange.response {
                 if headers {
                     for (k, v) in &resp.headers {
                         eprintln!("    resp {k}: {v}");
                     }
                 }
-                if bodies
-                    && let Some(ref body) = resp.body {
-                        eprintln!("    resp body: {}", String::from_utf8_lossy(body));
-                    }
+                if bodies && let Some(ref body) = resp.body {
+                    eprintln!("    resp body: {}", String::from_utf8_lossy(body));
+                }
             }
         } else {
             eprintln!(
@@ -342,16 +410,31 @@ async fn run_ca(command: cli::CaCommands, config: &config::Config) -> Result<()>
 
     match command {
         cli::CaCommands::Generate => {
-            eprintln!("[ledger] CA certificate ready at {}", mgr.ca_cert_path().display());
-            eprintln!("[ledger] Install this CA in your browser/system to trust intercepted HTTPS traffic:");
+            eprintln!(
+                "[ledger] CA certificate ready at {}",
+                mgr.ca_cert_path().display()
+            );
+            eprintln!(
+                "[ledger] Install this CA in your browser/system to trust intercepted HTTPS traffic:"
+            );
             eprintln!();
             println!("{}", mgr.ca_cert_pem());
             eprintln!();
             eprintln!("[ledger] Trust instructions:");
-            eprintln!("  Linux (system-wide):  sudo cp {} /usr/local/share/ca-certificates/ledger.crt && sudo update-ca-certificates", mgr.ca_cert_path().display());
-            eprintln!("  Linux (Firefox):      Settings → Privacy & Security → Certificates → View Certificates → Import");
-            eprintln!("  macOS:                sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain {}", mgr.ca_cert_path().display());
-            eprintln!("  Chrome (all platforms): Settings → Privacy and security → Security → Manage certificates → Authorities → Import");
+            eprintln!(
+                "  Linux (system-wide):  sudo cp {} /usr/local/share/ca-certificates/ledger.crt && sudo update-ca-certificates",
+                mgr.ca_cert_path().display()
+            );
+            eprintln!(
+                "  Linux (Firefox):      Settings → Privacy & Security → Certificates → View Certificates → Import"
+            );
+            eprintln!(
+                "  macOS:                sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain {}",
+                mgr.ca_cert_path().display()
+            );
+            eprintln!(
+                "  Chrome (all platforms): Settings → Privacy and security → Security → Manage certificates → Authorities → Import"
+            );
         }
         cli::CaCommands::Show => {
             println!("{}", mgr.ca_cert_pem());
@@ -381,12 +464,19 @@ async fn run_init(config: &config::Config) -> Result<()> {
         .join("config.toml");
 
     if config_path.exists() {
-        eprintln!("[ledger] config already exists at {}", config_path.display());
+        eprintln!(
+            "[ledger] config already exists at {}",
+            config_path.display()
+        );
         eprintln!("[ledger] delete it first if you want to regenerate");
         return Ok(());
     }
 
-    std::fs::create_dir_all(config_path.parent().unwrap())?;
+    std::fs::create_dir_all(
+        config_path
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("config path has no parent directory"))?,
+    )?;
 
     let config_toml = r#"# Ledger configuration file
 # Generated by `ledger init`
@@ -431,7 +521,9 @@ max_redirects = 10
     std::fs::write(&config_path, contents)?;
 
     eprintln!("[ledger] config written to {}", config_path.display());
-    eprintln!("[ledger] edit it to customize proxy settings, session defaults, and replay behavior");
+    eprintln!(
+        "[ledger] edit it to customize proxy settings, session defaults, and replay behavior"
+    );
 
     Ok(())
 }
@@ -449,11 +541,15 @@ async fn run_ws_replay(
     let pool = db::init_db(&db_path).await?;
 
     // Find the original request to get the host
-    let exchange = db::get_exchange_by_request_id(&pool, request_id).await?
+    let exchange = db::get_exchange_by_request_id(&pool, request_id)
+        .await?
         .ok_or_else(|| anyhow::anyhow!("request {} not found", request_id))?;
 
     let host = exchange.request.host;
-    eprintln!("[ledger] ws-replay: connecting to {} for request {}", host, request_id);
+    eprintln!(
+        "[ledger] ws-replay: connecting to {} for request {}",
+        host, request_id
+    );
 
     // Load all WS frames for this request_id
     let frames = db::list_ws_frames(&pool, request_id).await?;

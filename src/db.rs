@@ -145,7 +145,9 @@ pub async fn list_exchanges(
     .fetch_all(pool)
     .await?;
 
-    rows.into_iter().map(|r| r.into_exchange()).collect::<Result<Vec<_>>>()
+    rows.into_iter()
+        .map(|r| r.into_exchange())
+        .collect::<Result<Vec<_>>>()
 }
 
 pub async fn search_exchanges(pool: &SqlitePool, filter: &Filter) -> Result<Vec<Exchange>> {
@@ -200,7 +202,9 @@ pub async fn search_exchanges(pool: &SqlitePool, filter: &Filter) -> Result<Vec<
     }
 
     let rows = query.fetch_all(pool).await?;
-    rows.into_iter().map(|r| r.into_exchange()).collect::<Result<Vec<_>>>()
+    rows.into_iter()
+        .map(|r| r.into_exchange())
+        .collect::<Result<Vec<_>>>()
 }
 
 pub async fn get_request_by_id(pool: &SqlitePool, request_id: &str) -> Result<Option<Exchange>> {
@@ -226,21 +230,6 @@ pub async fn get_request_by_id(pool: &SqlitePool, request_id: &str) -> Result<Op
     }
 }
 
-#[allow(dead_code)]
-pub async fn get_session(pool: &SqlitePool, name: &str) -> Result<Option<Session>> {
-    let row: Option<SessionRow> = sqlx::query_as(
-        "SELECT name, created_at, updated_at, request_count, db_path FROM sessions WHERE name = ?"
-    )
-    .bind(name)
-    .fetch_optional(pool)
-    .await?;
-
-    match row {
-        Some(r) => Ok(Some(r.into_session()?)),
-        None => Ok(None),
-    }
-}
-
 pub async fn create_session(pool: &SqlitePool, session: &Session) -> Result<()> {
     let db_path = &session.db_path;
     sqlx::query(
@@ -248,7 +237,7 @@ pub async fn create_session(pool: &SqlitePool, session: &Session) -> Result<()> 
          VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(name) DO UPDATE SET
             updated_at = excluded.updated_at,
-            request_count = request_count + 1"
+            request_count = request_count + 1",
     )
     .bind(&session.name)
     .bind(session.created_at.to_rfc3339())
@@ -269,7 +258,7 @@ pub async fn store_ws_frame(pool: &SqlitePool, frame: &WsFrame) -> Result<()> {
 
     sqlx::query(
         "INSERT INTO ws_frames (id, request_id, direction, opcode, payload, timestamp)
-         VALUES (?, ?, ?, ?, ?, ?)"
+         VALUES (?, ?, ?, ?, ?, ?)",
     )
     .bind(&frame.id)
     .bind(&frame.request_id)
@@ -291,10 +280,15 @@ pub async fn list_ws_frames(pool: &SqlitePool, request_id: &str) -> Result<Vec<W
     .fetch_all(pool)
     .await?;
 
-    rows.into_iter().map(|r| r.into_ws_frame()).collect::<Result<Vec<_>>>()
+    rows.into_iter()
+        .map(|r| r.into_ws_frame())
+        .collect::<Result<Vec<_>>>()
 }
 
-pub async fn get_exchange_by_request_id(pool: &SqlitePool, request_id: &str) -> Result<Option<Exchange>> {
+pub async fn get_exchange_by_request_id(
+    pool: &SqlitePool,
+    request_id: &str,
+) -> Result<Option<Exchange>> {
     get_request_by_id(pool, request_id).await
 }
 
@@ -395,33 +389,6 @@ impl ExchangeRow {
     }
 }
 
-#[derive(sqlx::FromRow)]
-#[allow(dead_code)]
-struct SessionRow {
-    name: String,
-    created_at: String,
-    updated_at: String,
-    request_count: i64,
-    db_path: String,
-}
-
-impl SessionRow {
-    #[allow(dead_code)]
-    fn into_session(self) -> Result<Session> {
-        Ok(Session {
-            name: self.name,
-            created_at: chrono::DateTime::parse_from_rfc3339(&self.created_at)
-                .map_err(|e| anyhow::anyhow!("parse timestamp: {e}"))?
-                .with_timezone(&chrono::Utc),
-            updated_at: chrono::DateTime::parse_from_rfc3339(&self.updated_at)
-                .map_err(|e| anyhow::anyhow!("parse timestamp: {e}"))?
-                .with_timezone(&chrono::Utc),
-            request_count: self.request_count as u64,
-            db_path: self.db_path,
-        })
-    }
-}
-
 // ── Tests ───────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -437,7 +404,13 @@ mod tests {
         (pool, dir)
     }
 
-    fn make_request(id: &str, method: &str, url: &str, host: &str, session: &str) -> CapturedRequest {
+    fn make_request(
+        id: &str,
+        method: &str,
+        url: &str,
+        host: &str,
+        session: &str,
+    ) -> CapturedRequest {
         let mut headers = HashMap::new();
         headers.insert("host".to_string(), host.to_string());
         CapturedRequest {
@@ -483,7 +456,13 @@ mod tests {
         let session = Session::new("test".to_string(), "/tmp/test.db".to_string());
         create_session(&pool, &session).await.unwrap();
 
-        let req = make_request("req-1", "GET", "http://example.com/test", "example.com", "test");
+        let req = make_request(
+            "req-1",
+            "GET",
+            "http://example.com/test",
+            "example.com",
+            "test",
+        );
         store_request(&pool, &req).await.unwrap();
 
         let exchanges = list_exchanges(&pool, "test", 10).await.unwrap();
@@ -500,7 +479,13 @@ mod tests {
         let session = Session::new("test".to_string(), "/tmp/test.db".to_string());
         create_session(&pool, &session).await.unwrap();
 
-        let req = make_request("req-2", "POST", "http://api.example.com/users", "api.example.com", "test");
+        let req = make_request(
+            "req-2",
+            "POST",
+            "http://api.example.com/users",
+            "api.example.com",
+            "test",
+        );
         store_request(&pool, &req).await.unwrap();
 
         let resp = make_response("req-2", 201);
@@ -523,7 +508,13 @@ mod tests {
         let session = Session::new("test".to_string(), "/tmp/test.db".to_string());
         create_session(&pool, &session).await.unwrap();
 
-        let req = make_request("req-3", "DELETE", "http://example.com/item", "example.com", "test");
+        let req = make_request(
+            "req-3",
+            "DELETE",
+            "http://example.com/item",
+            "example.com",
+            "test",
+        );
         store_request(&pool, &req).await.unwrap();
 
         let found = get_request_by_id(&pool, "req-3").await.unwrap();
@@ -541,14 +532,28 @@ mod tests {
         let session = Session::new("test".to_string(), "/tmp/test.db".to_string());
         create_session(&pool, &session).await.unwrap();
 
-        let req1 = make_request("req-a", "GET", "http://example.com/a", "example.com", "test");
-        let req2 = make_request("req-b", "POST", "http://example.com/b", "example.com", "test");
+        let req1 = make_request(
+            "req-a",
+            "GET",
+            "http://example.com/a",
+            "example.com",
+            "test",
+        );
+        let req2 = make_request(
+            "req-b",
+            "POST",
+            "http://example.com/b",
+            "example.com",
+            "test",
+        );
         store_request(&pool, &req1).await.unwrap();
         store_request(&pool, &req2).await.unwrap();
 
-        let mut filter = Filter::default();
-        filter.session = Some("test".to_string());
-        filter.method = Some("POST".to_string());
+        let filter = Filter {
+            session: Some("test".to_string()),
+            method: Some("POST".to_string()),
+            ..Default::default()
+        };
 
         let results = search_exchanges(&pool, &filter).await.unwrap();
         assert_eq!(results.len(), 1);

@@ -1,18 +1,17 @@
 //! Interactive terminal UI built with ratatui.
 
-
 use anyhow::Result;
 use crossterm::{
     event::{self, Event, KeyCode},
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
+    Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
-    Terminal,
 };
 use sqlx::SqlitePool;
 use std::io;
@@ -92,17 +91,18 @@ impl App {
             // Auto-refresh: poll DB every 2 seconds for new exchanges
             if last_refresh.elapsed() >= refresh_interval {
                 if let Ok(new_exchanges) = db::list_exchanges(&self.pool, &self.session, 500).await
-                    && new_exchanges.len() != self.exchanges.len() {
-                        self.exchanges = new_exchanges;
-                        self.apply_filter();
-                        // Keep selection valid
-                        let len = self.filtered_exchanges.len() as i32;
-                        if len > 0 {
-                            let current = self.list_state.selected().map_or(0, |i| i as i32);
-                            let next = current.clamp(0, len - 1) as usize;
-                            self.list_state.select(Some(next));
-                        }
+                    && new_exchanges.len() != self.exchanges.len()
+                {
+                    self.exchanges = new_exchanges;
+                    self.apply_filter();
+                    // Keep selection valid
+                    let len = self.filtered_exchanges.len() as i32;
+                    if len > 0 {
+                        let current = self.list_state.selected().map_or(0, |i| i as i32);
+                        let next = current.clamp(0, len - 1) as usize;
+                        self.list_state.select(Some(next));
                     }
+                }
                 last_refresh = std::time::Instant::now();
             }
 
@@ -157,7 +157,9 @@ impl App {
             if self.search_mode == SearchMode::Filtering {
                 Span::styled(
                     "FILTERING",
-                    Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Magenta)
+                        .add_modifier(Modifier::BOLD),
                 )
             } else if !self.search_query.is_empty() {
                 Span::styled(
@@ -260,7 +262,12 @@ impl App {
         frame.render_widget(status, outer[2]);
     }
 
-    fn centered_rect(&self, percent_x: u16, height: u16, r: ratatui::layout::Rect) -> ratatui::layout::Rect {
+    fn centered_rect(
+        &self,
+        percent_x: u16,
+        height: u16,
+        r: ratatui::layout::Rect,
+    ) -> ratatui::layout::Rect {
         let popup_layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -296,10 +303,13 @@ impl App {
 
                 // Calculate group stats
                 let count = group_exchanges.len();
-                let avg_latency = group_exchanges.iter()
+                let avg_latency = group_exchanges
+                    .iter()
                     .filter_map(|ex| ex.response.as_ref().map(|r| r.latency_ms))
-                    .sum::<u64>() / count.max(1) as u64;
-                let error_count = group_exchanges.iter()
+                    .sum::<u64>()
+                    / count.max(1) as u64;
+                let error_count = group_exchanges
+                    .iter()
                     .filter(|ex| matches!(ex.response, Some(ref r) if r.status >= 400))
                     .count();
                 let error_rate = (error_count * 100) / count.max(1);
@@ -316,7 +326,10 @@ impl App {
                     Span::styled(format!("{expand_icon} "), group_style),
                     Span::styled(format!("{host} "), group_style.add_modifier(Modifier::BOLD)),
                     Span::styled(
-                        format!("({} req, {}ms avg, {}% err)", count, avg_latency, error_rate),
+                        format!(
+                            "({} req, {}ms avg, {}% err)",
+                            count, avg_latency, error_rate
+                        ),
                         Style::default().fg(Color::DarkGray),
                     ),
                 ])));
@@ -415,7 +428,11 @@ impl App {
             ))
             .style(Style::default().fg(Color::Yellow));
 
-        let text = match self.list_state.selected().and_then(|i| self.filtered_exchanges.get(i)) {
+        let text = match self
+            .list_state
+            .selected()
+            .and_then(|i| self.filtered_exchanges.get(i))
+        {
             Some(exchange) => match self.detail_mode {
                 DetailMode::Request => self.format_request_detail(exchange),
                 DetailMode::Response => self.format_response_detail(exchange),
@@ -449,7 +466,12 @@ impl App {
                 Span::raw(req.timestamp.to_rfc3339()),
             ]),
             Line::from(""),
-            Line::from(Span::styled("Headers:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+            Line::from(Span::styled(
+                "Headers:",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )),
         ];
 
         for (k, v) in &req.headers {
@@ -463,7 +485,9 @@ impl App {
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
                 "Body:",
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
             )));
             lines.extend(self.highlight_json_body(body));
         }
@@ -499,7 +523,9 @@ impl App {
             Line::from(""),
             Line::from(Span::styled(
                 "Headers:",
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
             )),
         ];
 
@@ -514,7 +540,9 @@ impl App {
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
                 "Body:",
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
             )));
             lines.extend(self.highlight_json_body(body));
         }
@@ -546,20 +574,15 @@ impl App {
         }
     }
 
-    /// Colorize a pretty-printed JSON string into ratatui Lines with styled spans.
-    #[allow(dead_code)]
-    fn colorize_json(&self, _json: &str) -> Vec<Line<'static>> {
-        colorize_json_owned(_json.to_string())
-    }
-
     fn handle_events(&mut self) -> Result<()> {
         if event::poll(std::time::Duration::from_millis(100))?
-            && let Event::Key(key) = event::read()? {
-                match self.search_mode {
-                    SearchMode::Filtering => self.handle_search_input(key.code),
-                    SearchMode::None => self.handle_normal_input(key.code),
-                }
+            && let Event::Key(key) = event::read()?
+        {
+            match self.search_mode {
+                SearchMode::Filtering => self.handle_search_input(key.code),
+                SearchMode::None => self.handle_normal_input(key.code),
             }
+        }
         Ok(())
     }
 
@@ -604,13 +627,14 @@ impl App {
             KeyCode::Char('e') => {
                 // Toggle expand/collapse for the group containing the selected item
                 if self.group_by_host
-                    && let Some(group) = self.group_for_selection() {
-                        if self.collapsed_groups.contains(&group) {
-                            self.collapsed_groups.remove(&group);
-                        } else {
-                            self.collapsed_groups.insert(group);
-                        }
+                    && let Some(group) = self.group_for_selection()
+                {
+                    if self.collapsed_groups.contains(&group) {
+                        self.collapsed_groups.remove(&group);
+                    } else {
+                        self.collapsed_groups.insert(group);
                     }
+                }
             }
             _ => {}
         }
@@ -742,16 +766,28 @@ fn colorize_json_owned(json: String) -> Vec<Line<'static>> {
                     let is_key = line[end..].trim_start().starts_with(':');
 
                     if is_key {
-                        spans.push(Span::styled(s.to_string(), Style::default().fg(Color::Cyan)));
+                        spans.push(Span::styled(
+                            s.to_string(),
+                            Style::default().fg(Color::Cyan),
+                        ));
                     } else {
-                        spans.push(Span::styled(s.to_string(), Style::default().fg(Color::Green)));
+                        spans.push(Span::styled(
+                            s.to_string(),
+                            Style::default().fg(Color::Green),
+                        ));
                     }
                 }
                 '0'..='9' | '-' => {
                     // Number
                     let mut end = start + ch.len_utf8();
                     while let Some(&(_, c)) = chars.peek() {
-                        if c.is_ascii_digit() || c == '.' || c == 'e' || c == 'E' || c == '+' || c == '-' {
+                        if c.is_ascii_digit()
+                            || c == '.'
+                            || c == 'e'
+                            || c == 'E'
+                            || c == '+'
+                            || c == '-'
+                        {
                             end += c.len_utf8();
                             chars.next();
                         } else {
@@ -759,7 +795,9 @@ fn colorize_json_owned(json: String) -> Vec<Line<'static>> {
                         }
                     }
                     spans.push(Span::styled(
-                        line[start..end].to_string(), Style::default().fg(Color::Yellow)));
+                        line[start..end].to_string(),
+                        Style::default().fg(Color::Yellow),
+                    ));
                 }
                 't' | 'f' | 'n' => {
                     // true, false, null
@@ -787,7 +825,10 @@ fn colorize_json_owned(json: String) -> Vec<Line<'static>> {
                     }
                 }
                 '{' | '}' | '[' | ']' | ':' | ',' => {
-                    spans.push(Span::styled(ch.to_string(), Style::default().fg(Color::DarkGray)));
+                    spans.push(Span::styled(
+                        ch.to_string(),
+                        Style::default().fg(Color::DarkGray),
+                    ));
                 }
                 c if c.is_whitespace() => {
                     spans.push(Span::raw(c.to_string()));
@@ -842,8 +883,9 @@ mod tests {
         let text = String::from_utf8_lossy(body);
         let trimmed = text.trim();
         let pretty = serde_json::to_string_pretty(
-            &serde_json::from_str::<serde_json::Value>(trimmed).unwrap()
-        ).unwrap();
+            &serde_json::from_str::<serde_json::Value>(trimmed).unwrap(),
+        )
+        .unwrap();
         let lines = colorize_json_owned(pretty);
         assert!(lines.len() > 1); // pretty-printed should be multi-line
     }

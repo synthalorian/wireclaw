@@ -65,7 +65,9 @@ impl ProxyServer {
             let intercept_rules = self.intercept_rules.clone();
 
             tokio::spawn(async move {
-                if let Err(e) = handle_connection(stream, tx, session, cert_mgr, intercept_rules).await {
+                if let Err(e) =
+                    handle_connection(stream, tx, session, cert_mgr, intercept_rules).await
+                {
                     eprintln!("[ledger] proxy connection error: {e}");
                 }
             });
@@ -186,7 +188,10 @@ async fn handle_connect_tunnel(
     let client_tls = match acceptor.accept(client_stream).await {
         Ok(stream) => stream,
         Err(e) => {
-            eprintln!("[ledger] TLS handshake with client failed for {}: {}", authority, e);
+            eprintln!(
+                "[ledger] TLS handshake with client failed for {}: {}",
+                authority, e
+            );
             return Ok(());
         }
     };
@@ -210,7 +215,10 @@ async fn handle_connect_tunnel(
         .with_upgrades()
         .await
     {
-        eprintln!("[ledger] HTTPS proxy error for {}: {}", authority_for_error, e);
+        eprintln!(
+            "[ledger] HTTPS proxy error for {}: {}",
+            authority_for_error, e
+        );
     }
 
     Ok(())
@@ -236,7 +244,10 @@ async fn handle_https_request(
             let body = Full::new(Bytes::from(format!("ledger proxy error: {e}")))
                 .map_err(|never| match never {})
                 .boxed();
-            Ok(Response::builder().status(502).body(body).unwrap())
+            Ok(Response::builder()
+                .status(502)
+                .body(body)
+                .expect("BoxBody should always construct successfully"))
         }
     }
 }
@@ -348,7 +359,10 @@ async fn proxy_https_request(
                             .map_err(|e| anyhow::anyhow!("forward HTTPS request failed: {e}"))?;
                         let latency_ms = start.elapsed().as_millis() as u64;
                         let resp_status = response.status();
-                        let resp_status_text = resp_status.canonical_reason().unwrap_or("Unknown").to_string();
+                        let resp_status_text = resp_status
+                            .canonical_reason()
+                            .unwrap_or("Unknown")
+                            .to_string();
                         let resp_status_u16 = resp_status.as_u16();
                         let mut resp_headers = std::collections::HashMap::new();
                         for (k, v) in response.headers() {
@@ -368,7 +382,11 @@ async fn proxy_https_request(
                             status: resp_status_u16,
                             status_text: resp_status_text,
                             headers: resp_headers,
-                            body: if resp_body_bytes.is_empty() { None } else { Some(resp_body_bytes.to_vec()) },
+                            body: if resp_body_bytes.is_empty() {
+                                None
+                            } else {
+                                Some(resp_body_bytes.to_vec())
+                            },
                             timestamp: chrono::Utc::now(),
                             latency_ms,
                         };
@@ -382,9 +400,13 @@ async fn proxy_https_request(
                             client_resp = client_resp.header(k, v);
                         }
                         let body: BoxBody = if resp_body_bytes.is_empty() {
-                            Empty::<Bytes>::new().map_err(|never| match never {}).boxed()
+                            Empty::<Bytes>::new()
+                                .map_err(|never| match never {})
+                                .boxed()
                         } else {
-                            Full::new(resp_body_bytes).map_err(|never| match never {}).boxed()
+                            Full::new(resp_body_bytes)
+                                .map_err(|never| match never {})
+                                .boxed()
                         };
                         return Ok(client_resp.body(body)?);
                     }
@@ -395,9 +417,7 @@ async fn proxy_https_request(
     }
 
     // Build forwarded request
-    let mut outbound_req = Request::builder()
-        .method(parts.method)
-        .uri(uri.clone());
+    let mut outbound_req = Request::builder().method(parts.method).uri(uri.clone());
 
     for (k, v) in &parts.headers {
         outbound_req = outbound_req.header(k, v);
@@ -446,17 +466,20 @@ async fn proxy_https_request(
         };
 
         // Store the upgrade handshake
-        let _ = tx.send(Exchange {
-            request: captured_req,
-            response: Some(captured_upgrade_resp),
-        }).await;
+        let _ = tx
+            .send(Exchange {
+                request: captured_req,
+                response: Some(captured_upgrade_resp),
+            })
+            .await;
 
         // Capture response headers before moving response
-        let response_headers: Vec<(hyper::header::HeaderName, hyper::header::HeaderValue)> = response
-            .headers()
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect();
+        let response_headers: Vec<(hyper::header::HeaderName, hyper::header::HeaderValue)> =
+            response
+                .headers()
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
 
         // Get upstream upgraded I/O
         let upstream_upgrade = hyper::upgrade::on(response);
@@ -473,7 +496,11 @@ async fn proxy_https_request(
         let authority_bridge = authority.clone();
         let request_id_bridge = request_id.clone();
         tokio::spawn(async move {
-            match on_upgrade.unwrap().await {
+            let Some(on_upgrade) = on_upgrade else {
+                eprintln!("[ledger] WebSocket upgrade not available");
+                return;
+            };
+            match on_upgrade.await {
                 Ok(client_upgraded) => {
                     match upstream_upgrade.await {
                         Ok(upstream_upgraded) => {
@@ -489,7 +516,8 @@ async fn proxy_https_request(
                             };
 
                             // For upstream, we need to do the client handshake
-                            let upstream_uri = format!("wss://{}{}", authority_bridge, path_and_query);
+                            let upstream_uri =
+                                format!("wss://{}{}", authority_bridge, path_and_query);
                             let upstream_req = match upstream_uri.parse::<Uri>() {
                                 Ok(u) => u,
                                 Err(e) => {
@@ -497,13 +525,18 @@ async fn proxy_https_request(
                                     return;
                                 }
                             };
-                            let upstream_ws = match tokio_tungstenite::client_async(upstream_req, upstream_io).await {
-                                Ok((ws, _)) => ws,
-                                Err(e) => {
-                                    eprintln!("[ledger] WebSocket upstream connect failed: {e}");
-                                    return;
-                                }
-                            };
+                            let upstream_ws =
+                                match tokio_tungstenite::client_async(upstream_req, upstream_io)
+                                    .await
+                                {
+                                    Ok((ws, _)) => ws,
+                                    Err(e) => {
+                                        eprintln!(
+                                            "[ledger] WebSocket upstream connect failed: {e}"
+                                        );
+                                        return;
+                                    }
+                                };
 
                             if let Err(e) = crate::websocket::proxy_websocket_bridge(
                                 client_ws,
@@ -512,7 +545,9 @@ async fn proxy_https_request(
                                 tx_bridge,
                                 session_bridge,
                                 authority_bridge,
-                            ).await {
+                            )
+                            .await
+                            {
                                 eprintln!("[ledger] WebSocket bridge error: {e}");
                             }
                         }
@@ -531,7 +566,10 @@ async fn proxy_https_request(
 
     // Capture response
     let resp_status = response.status();
-    let resp_status_text = resp_status.canonical_reason().unwrap_or("Unknown").to_string();
+    let resp_status_text = resp_status
+        .canonical_reason()
+        .unwrap_or("Unknown")
+        .to_string();
     let resp_status_u16 = resp_status.as_u16();
 
     let mut resp_headers = std::collections::HashMap::new();
@@ -604,7 +642,10 @@ async fn handle_request(
             let body = Full::new(Bytes::from(format!("ledger proxy error: {e}")))
                 .map_err(|never| match never {})
                 .boxed();
-            Ok(Response::builder().status(502).body(body).unwrap())
+            Ok(Response::builder()
+                .status(502)
+                .body(body)
+                .expect("BoxBody should always construct successfully"))
         }
     }
 }
@@ -693,7 +734,10 @@ async fn proxy_request(
                             .map_err(|e| anyhow::anyhow!("forward request failed: {e}"))?;
                         let latency_ms = start.elapsed().as_millis() as u64;
                         let resp_status = response.status();
-                        let resp_status_text = resp_status.canonical_reason().unwrap_or("Unknown").to_string();
+                        let resp_status_text = resp_status
+                            .canonical_reason()
+                            .unwrap_or("Unknown")
+                            .to_string();
                         let resp_status_u16 = resp_status.as_u16();
                         let mut resp_headers = std::collections::HashMap::new();
                         for (k, v) in response.headers() {
@@ -713,7 +757,11 @@ async fn proxy_request(
                             status: resp_status_u16,
                             status_text: resp_status_text,
                             headers: resp_headers,
-                            body: if resp_body_bytes.is_empty() { None } else { Some(resp_body_bytes.to_vec()) },
+                            body: if resp_body_bytes.is_empty() {
+                                None
+                            } else {
+                                Some(resp_body_bytes.to_vec())
+                            },
                             timestamp: chrono::Utc::now(),
                             latency_ms,
                         };
@@ -727,9 +775,13 @@ async fn proxy_request(
                             client_resp = client_resp.header(k, v);
                         }
                         let body: BoxBody = if resp_body_bytes.is_empty() {
-                            Empty::<Bytes>::new().map_err(|never| match never {}).boxed()
+                            Empty::<Bytes>::new()
+                                .map_err(|never| match never {})
+                                .boxed()
                         } else {
-                            Full::new(resp_body_bytes).map_err(|never| match never {}).boxed()
+                            Full::new(resp_body_bytes)
+                                .map_err(|never| match never {})
+                                .boxed()
                         };
                         return Ok(client_resp.body(body)?);
                     }
@@ -740,9 +792,7 @@ async fn proxy_request(
     }
 
     // Build forwarded request
-    let mut outbound_req = Request::builder()
-        .method(parts.method)
-        .uri(uri.clone());
+    let mut outbound_req = Request::builder().method(parts.method).uri(uri.clone());
 
     for (k, v) in &parts.headers {
         outbound_req = outbound_req.header(k, v);
@@ -770,7 +820,10 @@ async fn proxy_request(
 
     // Capture response
     let resp_status = response.status();
-    let resp_status_text = resp_status.canonical_reason().unwrap_or("Unknown").to_string();
+    let resp_status_text = resp_status
+        .canonical_reason()
+        .unwrap_or("Unknown")
+        .to_string();
     let resp_status_u16 = resp_status.as_u16();
 
     let mut resp_headers = std::collections::HashMap::new();
@@ -831,8 +884,16 @@ async fn proxy_request(
 }
 
 /// Get or create the shared HTTP client with TLS support.
-fn get_client() -> &'static Client<hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>, BoxBody> {
-    static CLIENT: std::sync::OnceLock<Client<hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>, BoxBody>> = std::sync::OnceLock::new();
+fn get_client() -> &'static Client<
+    hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>,
+    BoxBody,
+> {
+    static CLIENT: std::sync::OnceLock<
+        Client<
+            hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>,
+            BoxBody,
+        >,
+    > = std::sync::OnceLock::new();
     CLIENT.get_or_init(|| {
         let https = hyper_rustls::HttpsConnectorBuilder::new()
             .with_native_roots()
@@ -846,8 +907,16 @@ fn get_client() -> &'static Client<hyper_rustls::HttpsConnector<hyper_util::clie
 }
 
 /// Get or create the shared HTTPS-only client for upstream connections in MITM mode.
-fn get_https_client() -> &'static Client<hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>, BoxBody> {
-    static CLIENT: std::sync::OnceLock<Client<hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>, BoxBody>> = std::sync::OnceLock::new();
+fn get_https_client() -> &'static Client<
+    hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>,
+    BoxBody,
+> {
+    static CLIENT: std::sync::OnceLock<
+        Client<
+            hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>,
+            BoxBody,
+        >,
+    > = std::sync::OnceLock::new();
     CLIENT.get_or_init(|| {
         let https = hyper_rustls::HttpsConnectorBuilder::new()
             .with_native_roots()

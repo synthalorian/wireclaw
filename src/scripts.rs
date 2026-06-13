@@ -129,33 +129,33 @@ impl ScriptEngine {
         globals.set("set_url", set_url)?;
 
         // Also expose request:set_header etc. for nicer API
-        let req_set_header = self
-            .lua
-            .create_function(|lua, (req, key, value): (mlua::Table, String, String)| {
-                let _ = req;
-                let mods: mlua::Table = lua.globals().get("__mods")?;
-                let headers: mlua::Table = match mods.get("headers")? {
-                    Some(h) => h,
-                    None => {
-                        let h = lua.create_table()?;
-                        mods.set("headers", h.clone())?;
-                        h
-                    }
-                };
-                headers.set(key, value)?;
-                Ok(())
-            })?;
+        let req_set_header =
+            self.lua
+                .create_function(|lua, (req, key, value): (mlua::Table, String, String)| {
+                    let _ = req;
+                    let mods: mlua::Table = lua.globals().get("__mods")?;
+                    let headers: mlua::Table = match mods.get("headers")? {
+                        Some(h) => h,
+                        None => {
+                            let h = lua.create_table()?;
+                            mods.set("headers", h.clone())?;
+                            h
+                        }
+                    };
+                    headers.set(key, value)?;
+                    Ok(())
+                })?;
         let req_table: mlua::Table = globals.get("request")?;
         req_table.set("set_header", req_set_header)?;
 
-        let req_set_body = self
-            .lua
-            .create_function(|lua, (req, body): (mlua::Table, String)| {
-                let _ = req;
-                let mods: mlua::Table = lua.globals().get("__mods")?;
-                mods.set("body", body)?;
-                Ok(())
-            })?;
+        let req_set_body =
+            self.lua
+                .create_function(|lua, (req, body): (mlua::Table, String)| {
+                    let _ = req;
+                    let mods: mlua::Table = lua.globals().get("__mods")?;
+                    mods.set("body", body)?;
+                    Ok(())
+                })?;
         req_table.set("set_body", req_set_body)?;
 
         let req_set_url = self
@@ -184,18 +184,14 @@ impl ScriptEngine {
             result.body = Some(body.into_bytes());
         }
         if let Ok(headers) = mods.get::<mlua::Table>("headers") {
-            for pair in headers.pairs::<String, String>() {
-                if let Ok((k, v)) = pair {
-                    result.headers.insert(k, v);
-                }
+            for (k, v) in headers.pairs::<String, String>().flatten() {
+                result.headers.insert(k, v);
             }
         }
 
         // Collect updated vars
-        for pair in vars_table.pairs::<String, String>() {
-            if let Ok((k, v)) = pair {
-                self.vars.borrow_mut().insert(k, v);
-            }
+        for (k, v) in vars_table.pairs::<String, String>().flatten() {
+            self.vars.borrow_mut().insert(k, v);
         }
 
         Ok(result)
@@ -250,10 +246,8 @@ impl ScriptEngine {
             .context("post-response script error")?;
 
         // Collect updated vars
-        for pair in vars_table.pairs::<String, String>() {
-            if let Ok((k, v)) = pair {
-                self.vars.borrow_mut().insert(k, v);
-            }
+        for (k, v) in vars_table.pairs::<String, String>().flatten() {
+            self.vars.borrow_mut().insert(k, v);
         }
 
         Ok(())
@@ -369,10 +363,7 @@ mod tests {
         let mut req = make_request();
 
         let mods = engine
-            .run_pre_request(
-                "request:set_header('Authorization', 'Bearer secret')",
-                &req,
-            )
+            .run_pre_request("request:set_header('Authorization', 'Bearer secret')", &req)
             .unwrap();
 
         mods.apply(&mut req);
@@ -408,10 +399,7 @@ mod tests {
             .unwrap();
 
         mods.apply(&mut req);
-        assert_eq!(
-            req.headers.get("Authorization").unwrap(),
-            "Bearer mytoken"
-        );
+        assert_eq!(req.headers.get("Authorization").unwrap(), "Bearer mytoken");
         assert_eq!(engine.get_vars().get("token").unwrap(), "mytoken");
     }
 
@@ -433,10 +421,8 @@ mod tests {
         let engine = ScriptEngine::new().unwrap();
         let resp = make_response();
 
-        let result = engine.run_post_response(
-            "assert(response.status == 200, 'bad status')",
-            &resp,
-        );
+        let result =
+            engine.run_post_response("assert(response.status == 200, 'bad status')", &resp);
         assert!(result.is_ok());
 
         let bad_resp = CapturedResponse {

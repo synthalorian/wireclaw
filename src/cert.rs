@@ -9,8 +9,8 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
 use rcgen::{CertificateParams, DistinguishedName, DnType, Issuer, KeyPair, SanType};
-use rustls::pki_types::CertificateDer;
 use rustls::ServerConfig;
+use rustls::pki_types::CertificateDer;
 
 /// Manages the Ledger CA and per-host certificates.
 pub struct CertManager {
@@ -147,7 +147,7 @@ impl CertManager {
 
         // Check cache first
         {
-            let cache = self.host_certs.lock().unwrap();
+            let cache = self.host_certs.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(cfg) = cache.get(host_clean) {
                 return Ok(Arc::clone(cfg));
             }
@@ -175,7 +175,7 @@ impl CertManager {
 
         // Cache it
         {
-            let mut cache = self.host_certs.lock().unwrap();
+            let mut cache = self.host_certs.lock().unwrap_or_else(|e| e.into_inner());
             cache.insert(host_clean.to_string(), Arc::clone(&config));
         }
 
@@ -193,9 +193,10 @@ impl CertManager {
         let mut params = CertificateParams::new(vec![host.to_string()])
             .with_context(|| format!("creating cert params for host {host}"))?;
         params.distinguished_name = dn;
-        params.subject_alt_names = vec![SanType::DnsName(
-            host.try_into().map_err(|e| anyhow::anyhow!("invalid hostname for SAN: {e:?}"))?
-        )];
+        params.subject_alt_names =
+            vec![SanType::DnsName(host.try_into().map_err(|e| {
+                anyhow::anyhow!("invalid hostname for SAN: {e:?}")
+            })?)];
 
         let issuer = Issuer::new(self.ca_params.clone(), &self.ca_key);
 

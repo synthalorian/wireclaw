@@ -34,11 +34,7 @@ pub struct WsFrame {
 }
 
 impl WsFrame {
-    pub fn from_message(
-        request_id: String,
-        direction: WsDirection,
-        msg: &Message,
-    ) -> Self {
+    pub fn from_message(request_id: String, direction: WsDirection, msg: &Message) -> Self {
         let opcode = match msg {
             Message::Text(_) => "text",
             Message::Binary(_) => "binary",
@@ -138,27 +134,33 @@ pub async fn proxy_websocket_bridge<
                 break;
             }
 
-            let frame = WsFrame::from_message(request_id_c2s.clone(), WsDirection::ClientToServer, &msg);
+            let frame =
+                WsFrame::from_message(request_id_c2s.clone(), WsDirection::ClientToServer, &msg);
 
-            let _ = tx_c2s.send(Exchange {
-                request: CapturedRequest {
-                    id: frame.id.clone(),
-                    method: "WS".to_string(),
-                    url: format!("ws://{}", upstream_addr_c2s),
-                    path: "/".to_string(),
-                    host: upstream_addr_c2s.clone(),
-                    headers: {
-                        let mut h = HashMap::new();
-                        h.insert("x-ledger-ws-direction".to_string(), "client->server".to_string());
-                        h.insert("x-ledger-ws-opcode".to_string(), frame.opcode.clone());
-                        h
+            let _ = tx_c2s
+                .send(Exchange {
+                    request: CapturedRequest {
+                        id: frame.id.clone(),
+                        method: "WS".to_string(),
+                        url: format!("ws://{}", upstream_addr_c2s),
+                        path: "/".to_string(),
+                        host: upstream_addr_c2s.clone(),
+                        headers: {
+                            let mut h = HashMap::new();
+                            h.insert(
+                                "x-ledger-ws-direction".to_string(),
+                                "client->server".to_string(),
+                            );
+                            h.insert("x-ledger-ws-opcode".to_string(), frame.opcode.clone());
+                            h
+                        },
+                        body: frame.payload.clone(),
+                        timestamp: frame.timestamp,
+                        session: session_c2s.clone(),
                     },
-                    body: frame.payload.clone(),
-                    timestamp: frame.timestamp,
-                    session: session_c2s.clone(),
-                },
-                response: None,
-            }).await;
+                    response: None,
+                })
+                .await;
 
             if let Err(e) = upstream_sink.send(msg).await {
                 eprintln!("[ledger] WebSocket upstream send error: {e}");
@@ -175,27 +177,33 @@ pub async fn proxy_websocket_bridge<
                 break;
             }
 
-            let frame = WsFrame::from_message(request_id_s2c.clone(), WsDirection::ServerToClient, &msg);
+            let frame =
+                WsFrame::from_message(request_id_s2c.clone(), WsDirection::ServerToClient, &msg);
 
-            let _ = tx_s2c.send(Exchange {
-                request: CapturedRequest {
-                    id: frame.id.clone(),
-                    method: "WS".to_string(),
-                    url: format!("ws://{}", upstream_addr_s2c),
-                    path: "/".to_string(),
-                    host: upstream_addr_s2c.clone(),
-                    headers: {
-                        let mut h = HashMap::new();
-                        h.insert("x-ledger-ws-direction".to_string(), "server->client".to_string());
-                        h.insert("x-ledger-ws-opcode".to_string(), frame.opcode.clone());
-                        h
+            let _ = tx_s2c
+                .send(Exchange {
+                    request: CapturedRequest {
+                        id: frame.id.clone(),
+                        method: "WS".to_string(),
+                        url: format!("ws://{}", upstream_addr_s2c),
+                        path: "/".to_string(),
+                        host: upstream_addr_s2c.clone(),
+                        headers: {
+                            let mut h = HashMap::new();
+                            h.insert(
+                                "x-ledger-ws-direction".to_string(),
+                                "server->client".to_string(),
+                            );
+                            h.insert("x-ledger-ws-opcode".to_string(), frame.opcode.clone());
+                            h
+                        },
+                        body: frame.payload.clone(),
+                        timestamp: frame.timestamp,
+                        session: session_s2c.clone(),
                     },
-                    body: frame.payload.clone(),
-                    timestamp: frame.timestamp,
-                    session: session_s2c.clone(),
-                },
-                response: None,
-            }).await;
+                    response: None,
+                })
+                .await;
 
             if let Err(e) = client_sink.send(msg).await {
                 eprintln!("[ledger] WebSocket client send error: {e}");
@@ -233,11 +241,7 @@ pub fn is_websocket_upgrade(req: &hyper::Request<hyper::body::Incoming>) -> bool
 /// Replay a WebSocket conversation from captured frames.
 /// Connects to the target, then replays all client->server frames with
 /// optional delay between them.
-pub async fn replay_websocket(
-    target_addr: &str,
-    frames: &[WsFrame],
-    delay_ms: u64,
-) -> Result<()> {
+pub async fn replay_websocket(target_addr: &str, frames: &[WsFrame], delay_ms: u64) -> Result<()> {
     let uri = format!("ws://{}", target_addr);
     let (ws_stream, _) = tokio_tungstenite::connect_async(&uri)
         .await
@@ -261,7 +265,10 @@ pub async fn replay_websocket(
     });
 
     // Replay client->server frames
-    for frame in frames.iter().filter(|f| f.direction == WsDirection::ClientToServer) {
+    for frame in frames
+        .iter()
+        .filter(|f| f.direction == WsDirection::ClientToServer)
+    {
         let msg = frame.to_message();
         eprintln!(
             "[ledger] ws replay {} -> {}",
@@ -290,7 +297,6 @@ pub async fn replay_websocket(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
 
     #[test]
     fn test_ws_frame_from_text_message() {

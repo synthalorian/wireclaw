@@ -40,7 +40,8 @@ impl ReplayEngine {
             if count > 1 {
                 eprintln!("[ledger] replay {}/{}: {}", i + 1, count, request_id);
             }
-            self.replay_exchange(&exchange, dry_run, diff, pre_script, post_script).await?;
+            self.replay_exchange(&exchange, dry_run, diff, pre_script, post_script)
+                .await?;
 
             if i + 1 < count {
                 tokio::time::sleep(Duration::from_millis(100)).await;
@@ -73,9 +74,15 @@ impl ReplayEngine {
 
         for i in 0..count {
             if count > 1 {
-                eprintln!("[ledger] replay {}/{}: {} (edited)", i + 1, count, request_id);
+                eprintln!(
+                    "[ledger] replay {}/{}: {} (edited)",
+                    i + 1,
+                    count,
+                    request_id
+                );
             }
-            self.replay_exchange(&edited_exchange, dry_run, diff, pre_script, post_script).await?;
+            self.replay_exchange(&edited_exchange, dry_run, diff, pre_script, post_script)
+                .await?;
 
             if i + 1 < count {
                 tokio::time::sleep(Duration::from_millis(100)).await;
@@ -107,7 +114,8 @@ impl ReplayEngine {
         );
 
         for exchange in &exchanges {
-            self.replay_exchange(exchange, dry_run, diff, pre_script, post_script).await?;
+            self.replay_exchange(exchange, dry_run, diff, pre_script, post_script)
+                .await?;
         }
 
         Ok(())
@@ -184,9 +192,17 @@ impl ReplayEngine {
             headers: resp_parts
                 .headers
                 .iter()
-                .filter_map(|(k, v)| v.to_str().ok().map(|s| (k.as_str().to_lowercase(), s.to_string())))
+                .filter_map(|(k, v)| {
+                    v.to_str()
+                        .ok()
+                        .map(|s| (k.as_str().to_lowercase(), s.to_string()))
+                })
                 .collect(),
-            body: if body_bytes.is_empty() { None } else { Some(body_bytes.to_vec()) },
+            body: if body_bytes.is_empty() {
+                None
+            } else {
+                Some(body_bytes.to_vec())
+            },
             timestamp: chrono::Utc::now(),
             latency_ms,
         };
@@ -211,10 +227,7 @@ impl ReplayEngine {
     }
 
     /// Replay a request and return the captured response (for chaining).
-    pub async fn replay_exchange_for_chain(
-        &self,
-        exchange: &Exchange,
-    ) -> Result<CapturedResponse> {
+    pub async fn replay_exchange_for_chain(&self, exchange: &Exchange) -> Result<CapturedResponse> {
         let req = &exchange.request;
         let http_req = self.build_http_request(req).await?;
 
@@ -253,18 +266,23 @@ impl ReplayEngine {
             headers: resp_parts
                 .headers
                 .iter()
-                .filter_map(|(k, v)| v.to_str().ok().map(|s| (k.as_str().to_lowercase(), s.to_string())))
+                .filter_map(|(k, v)| {
+                    v.to_str()
+                        .ok()
+                        .map(|s| (k.as_str().to_lowercase(), s.to_string()))
+                })
                 .collect(),
-            body: if body_bytes.is_empty() { None } else { Some(body_bytes.to_vec()) },
+            body: if body_bytes.is_empty() {
+                None
+            } else {
+                Some(body_bytes.to_vec())
+            },
             timestamp: chrono::Utc::now(),
             latency_ms,
         })
     }
 
-    async fn build_http_request(
-        &self,
-        captured: &CapturedRequest,
-    ) -> Result<Request<BoxBody>> {
+    async fn build_http_request(&self, captured: &CapturedRequest) -> Result<Request<BoxBody>> {
         let uri: Uri = captured
             .url
             .parse()
@@ -304,8 +322,16 @@ impl ReplayEngine {
 type BoxBody = http_body_util::combinators::BoxBody<Bytes, Infallible>;
 
 /// Get or create the shared HTTPS client for replay.
-fn get_https_client() -> &'static Client<hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>, BoxBody> {
-    static CLIENT: std::sync::OnceLock<Client<hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>, BoxBody>> = std::sync::OnceLock::new();
+fn get_https_client() -> &'static Client<
+    hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>,
+    BoxBody,
+> {
+    static CLIENT: std::sync::OnceLock<
+        Client<
+            hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>,
+            BoxBody,
+        >,
+    > = std::sync::OnceLock::new();
     CLIENT.get_or_init(|| {
         let https = hyper_rustls::HttpsConnectorBuilder::new()
             .with_native_roots()
@@ -327,8 +353,13 @@ fn print_diff(original: &CapturedResponse, replayed: &CapturedResponse) {
     if original.status != replayed.status {
         eprintln!(
             "  status: {} -> {} {}",
-            original.status, replayed.status,
-            if replayed.status == original.status { "(same)" } else { "(CHANGED)" }
+            original.status,
+            replayed.status,
+            if replayed.status == original.status {
+                "(same)"
+            } else {
+                "(CHANGED)"
+            }
         );
     } else {
         eprintln!("  status: {} (same)", original.status);
@@ -355,13 +386,18 @@ fn print_diff(original: &CapturedResponse, replayed: &CapturedResponse) {
         (Some(_), None) => eprintln!("  body: original had body, replay returned empty (CHANGED)"),
         (None, Some(_)) => eprintln!("  body: original was empty, replay returned body (CHANGED)"),
         (Some(orig), Some(repl)) => {
-            let is_json = original.headers.get("content-type")
-                .or_else(|| original.headers.get("content-type"))
+            let is_json = original
+                .headers
+                .get("content-type")
+                .or_else(|| replayed.headers.get("content-type"))
                 .map(|ct| ct.contains("application/json"))
                 .unwrap_or(false);
 
             if is_json {
-                match (serde_json::from_slice::<serde_json::Value>(orig), serde_json::from_slice::<serde_json::Value>(repl)) {
+                match (
+                    serde_json::from_slice::<serde_json::Value>(orig),
+                    serde_json::from_slice::<serde_json::Value>(repl),
+                ) {
                     (Ok(orig_val), Ok(repl_val)) => {
                         if orig_val == repl_val {
                             eprintln!("  body: JSON (same)");
@@ -398,7 +434,11 @@ fn diff_headers(
     for (k, v_orig) in original {
         match replayed.get(k) {
             Some(v_repl) if v_repl != v_orig => {
-                changes.push(HeaderChange::Changed(k.clone(), v_orig.clone(), v_repl.clone()));
+                changes.push(HeaderChange::Changed(
+                    k.clone(),
+                    v_orig.clone(),
+                    v_repl.clone(),
+                ));
             }
             None => {
                 changes.push(HeaderChange::Removed(k.clone(), v_orig.clone()));
@@ -426,7 +466,9 @@ fn print_raw_body_diff(original: &[u8], replayed: &[u8]) {
             original.len(),
             replayed.len()
         );
-        if let (Ok(orig_str), Ok(repl_str)) = (std::str::from_utf8(original), std::str::from_utf8(replayed)) {
+        if let (Ok(orig_str), Ok(repl_str)) =
+            (std::str::from_utf8(original), std::str::from_utf8(replayed))
+        {
             if orig_str.lines().count() <= 20 && repl_str.lines().count() <= 20 {
                 eprintln!("  --- original ---");
                 for line in orig_str.lines() {
@@ -448,7 +490,8 @@ fn print_raw_body_diff(original: &[u8], replayed: &[u8]) {
 fn print_json_diff(original: &serde_json::Value, replayed: &serde_json::Value, indent: &str) {
     match (original, replayed) {
         (serde_json::Value::Object(orig_map), serde_json::Value::Object(repl_map)) => {
-            let all_keys: std::collections::HashSet<_> = orig_map.keys().chain(repl_map.keys()).collect();
+            let all_keys: std::collections::HashSet<_> =
+                orig_map.keys().chain(repl_map.keys()).collect();
             for key in all_keys {
                 match (orig_map.get(key), repl_map.get(key)) {
                     (Some(v1), Some(v2)) if v1 != v2 => {
@@ -502,6 +545,41 @@ fn parse_filter_expr(expr: &str) -> Result<crate::models::Filter> {
     }
 
     Ok(filter)
+}
+
+// ── Request Editor ──────────────────────────────────────────────────────────
+
+/// Serialize a request to JSON, open it in $EDITOR, parse it back.
+async fn edit_request_in_editor(req: &CapturedRequest) -> Result<CapturedRequest> {
+    let editor = std::env::var("EDITOR").unwrap_or_else(|_| "nano".to_string());
+
+    let json = serde_json::to_string_pretty(req).context("serializing request to JSON")?;
+
+    let mut tmp = tempfile::NamedTempFile::with_suffix(".json")?;
+    std::io::Write::write_all(&mut tmp, json.as_bytes())?;
+    let path = tmp.path().to_path_buf();
+
+    // Need to close the file so the editor can open it
+    drop(tmp);
+
+    let status = tokio::process::Command::new(&editor)
+        .arg(&path)
+        .status()
+        .await
+        .with_context(|| format!("failed to spawn editor: {editor}"))?;
+
+    if !status.success() {
+        anyhow::bail!("editor exited with non-zero status");
+    }
+
+    let edited_json = tokio::fs::read_to_string(&path)
+        .await
+        .context("reading edited request file")?;
+
+    let edited_req: CapturedRequest =
+        serde_json::from_str(&edited_json).context("parsing edited request JSON")?;
+
+    Ok(edited_req)
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────────
@@ -653,40 +731,4 @@ mod tests {
         let deserialized2: CapturedRequest = serde_json::from_str(&modified).unwrap();
         assert_eq!(deserialized2.method, "PUT");
     }
-}
-
-// ── Request Editor ──────────────────────────────────────────────────────────
-
-/// Serialize a request to JSON, open it in $EDITOR, parse it back.
-async fn edit_request_in_editor(req: &CapturedRequest) -> Result<CapturedRequest> {
-    let editor = std::env::var("EDITOR").unwrap_or_else(|_| "nano".to_string());
-
-    let json = serde_json::to_string_pretty(req)
-        .context("serializing request to JSON")?;
-
-    let mut tmp = tempfile::NamedTempFile::with_suffix(".json")?;
-    std::io::Write::write_all(&mut tmp, json.as_bytes())?;
-    let path = tmp.path().to_path_buf();
-
-    // Need to close the file so the editor can open it
-    drop(tmp);
-
-    let status = tokio::process::Command::new(&editor)
-        .arg(&path)
-        .status()
-        .await
-        .with_context(|| format!("failed to spawn editor: {editor}"))?;
-
-    if !status.success() {
-        anyhow::bail!("editor exited with non-zero status");
-    }
-
-    let edited_json = tokio::fs::read_to_string(&path)
-        .await
-        .context("reading edited request file")?;
-
-    let edited_req: CapturedRequest = serde_json::from_str(&edited_json)
-        .context("parsing edited request JSON")?;
-
-    Ok(edited_req)
 }

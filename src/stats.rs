@@ -82,9 +82,7 @@ pub async fn compute_session_stats(pool: &SqlitePool, session: &str) -> Result<S
     // Host breakdown
     let mut host_breakdown: HashMap<String, usize> = HashMap::new();
     for ex in &exchanges {
-        *host_breakdown
-            .entry(ex.request.host.clone())
-            .or_insert(0) += 1;
+        *host_breakdown.entry(ex.request.host.clone()).or_insert(0) += 1;
     }
 
     // Top endpoints by hit count
@@ -95,7 +93,7 @@ pub async fn compute_session_stats(pool: &SqlitePool, session: &str) -> Result<S
     }
 
     let mut top_endpoints: Vec<(String, usize)> = endpoint_counts.into_iter().collect();
-    top_endpoints.sort_by(|a, b| b.1.cmp(&a.1));
+    top_endpoints.sort_by_key(|b| std::cmp::Reverse(b.1));
     top_endpoints.truncate(10);
 
     // Latency histogram (buckets in ms)
@@ -148,7 +146,7 @@ pub fn format_stats(stats: &SessionStats, session: &str) -> String {
     if !stats.method_breakdown.is_empty() {
         lines.push("Methods:".to_string());
         let mut methods: Vec<_> = stats.method_breakdown.iter().collect();
-        methods.sort_by(|a, b| b.1.cmp(a.1));
+        methods.sort_by_key(|a| std::cmp::Reverse(a.1));
         for (method, count) in methods {
             lines.push(format!("  {method:>6}: {count}"));
         }
@@ -168,7 +166,7 @@ pub fn format_stats(stats: &SessionStats, session: &str) -> String {
     if !stats.host_breakdown.is_empty() {
         lines.push("Hosts:".to_string());
         let mut hosts: Vec<_> = stats.host_breakdown.iter().collect();
-        hosts.sort_by(|a, b| b.1.cmp(a.1));
+        hosts.sort_by_key(|a| std::cmp::Reverse(a.1));
         for (host, count) in hosts {
             lines.push(format!("  {host}: {count}"));
         }
@@ -204,7 +202,13 @@ mod tests {
     use crate::models::{CapturedRequest, CapturedResponse, Exchange};
     use std::collections::HashMap;
 
-    fn make_exchange(method: &str, path: &str, host: &str, status: u16, latency_ms: u64) -> Exchange {
+    fn make_exchange(
+        method: &str,
+        path: &str,
+        host: &str,
+        status: u16,
+        latency_ms: u64,
+    ) -> Exchange {
         let req_id = uuid::Uuid::new_v4().to_string();
         Exchange {
             request: CapturedRequest {
@@ -249,7 +253,8 @@ mod tests {
         let pool = crate::db::init_db(&db_path).await.unwrap();
 
         // Create session first (FK constraint)
-        let session = crate::models::Session::new("test".to_string(), db_path.display().to_string());
+        let session =
+            crate::models::Session::new("test".to_string(), db_path.display().to_string());
         crate::db::create_session(&pool, &session).await.unwrap();
 
         // Store some exchanges

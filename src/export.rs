@@ -36,7 +36,11 @@ impl Exporter {
 
         if let Some(path) = output {
             std::fs::write(path, &content)?;
-            eprintln!("[ledger] exported {} exchanges to {}", exchanges.len(), path.display());
+            eprintln!(
+                "[ledger] exported {} exchanges to {}",
+                exchanges.len(),
+                path.display()
+            );
         }
 
         Ok(content)
@@ -47,76 +51,84 @@ impl Exporter {
     }
 
     fn to_har(&self, exchanges: &[Exchange], session: &str) -> Result<String> {
-        let entries: Vec<serde_json::Value> = exchanges.iter().map(|ex| {
-            let req = &ex.request;
-            let resp = ex.response.as_ref();
+        let entries: Vec<serde_json::Value> = exchanges
+            .iter()
+            .map(|ex| {
+                let req = &ex.request;
+                let resp = ex.response.as_ref();
 
-            let req_headers: Vec<serde_json::Value> = req.headers.iter().map(|(k, v)| {
-                json!({ "name": k, "value": v })
-            }).collect();
+                let req_headers: Vec<serde_json::Value> = req
+                    .headers
+                    .iter()
+                    .map(|(k, v)| json!({ "name": k, "value": v }))
+                    .collect();
 
-            let resp_headers: Vec<serde_json::Value> = resp.map_or(Vec::new(), |r| {
-                r.headers.iter().map(|(k, v)| {
-                    json!({ "name": k, "value": v })
-                }).collect()
-            });
+                let resp_headers: Vec<serde_json::Value> = resp.map_or(Vec::new(), |r| {
+                    r.headers
+                        .iter()
+                        .map(|(k, v)| json!({ "name": k, "value": v }))
+                        .collect()
+                });
 
-            let req_body_size = req.body.as_ref().map_or(0, |b| b.len() as i64);
-            let resp_body_size = resp.and_then(|r| r.body.as_ref().map(|b| b.len() as i64)).unwrap_or(0);
+                let req_body_size = req.body.as_ref().map_or(0, |b| b.len() as i64);
+                let resp_body_size = resp
+                    .and_then(|r| r.body.as_ref().map(|b| b.len() as i64))
+                    .unwrap_or(0);
 
-            let req_content = if let Some(ref body) = req.body {
+                let req_content = if let Some(ref body) = req.body {
+                    json!({
+                        "size": req_body_size,
+                        "mimeType": guess_mime_type(&req.headers),
+                        "text": String::from_utf8_lossy(body).to_string()
+                    })
+                } else {
+                    json!({ "size": 0 })
+                };
+
+                let resp_content = if let Some(body) = resp.and_then(|r| r.body.as_ref()) {
+                    json!({
+                        "size": resp_body_size,
+                        "mimeType": resp.map_or("", |r| guess_mime_type(&r.headers)),
+                        "text": String::from_utf8_lossy(body).to_string()
+                    })
+                } else {
+                    json!({ "size": 0 })
+                };
+
                 json!({
-                    "size": req_body_size,
-                    "mimeType": guess_mime_type(&req.headers),
-                    "text": String::from_utf8_lossy(body).to_string()
+                    "startedDateTime": req.timestamp.to_rfc3339(),
+                    "time": resp.map_or(0, |r| r.latency_ms),
+                    "request": {
+                        "method": req.method,
+                        "url": req.url,
+                        "httpVersion": "HTTP/1.1",
+                        "headers": req_headers,
+                        "queryString": [],
+                        "cookies": [],
+                        "headersSize": -1,
+                        "bodySize": req_body_size,
+                        "postData": req_content
+                    },
+                    "response": {
+                        "status": resp.map_or(0, |r| r.status),
+                        "statusText": resp.map_or("", |r| &r.status_text),
+                        "httpVersion": "HTTP/1.1",
+                        "headers": resp_headers,
+                        "cookies": [],
+                        "content": resp_content,
+                        "redirectURL": "",
+                        "headersSize": -1,
+                        "bodySize": resp_body_size
+                    },
+                    "cache": {},
+                    "timings": {
+                        "send": 0,
+                        "wait": resp.map_or(0, |r| r.latency_ms),
+                        "receive": 0
+                    }
                 })
-            } else {
-                json!({ "size": 0 })
-            };
-
-            let resp_content = if let Some(body) = resp.and_then(|r| r.body.as_ref()) {
-                json!({
-                    "size": resp_body_size,
-                    "mimeType": resp.map_or("", |r| guess_mime_type(&r.headers)),
-                    "text": String::from_utf8_lossy(body).to_string()
-                })
-            } else {
-                json!({ "size": 0 })
-            };
-
-            json!({
-                "startedDateTime": req.timestamp.to_rfc3339(),
-                "time": resp.map_or(0, |r| r.latency_ms),
-                "request": {
-                    "method": req.method,
-                    "url": req.url,
-                    "httpVersion": "HTTP/1.1",
-                    "headers": req_headers,
-                    "queryString": [],
-                    "cookies": [],
-                    "headersSize": -1,
-                    "bodySize": req_body_size,
-                    "postData": req_content
-                },
-                "response": {
-                    "status": resp.map_or(0, |r| r.status),
-                    "statusText": resp.map_or("", |r| &r.status_text),
-                    "httpVersion": "HTTP/1.1",
-                    "headers": resp_headers,
-                    "cookies": [],
-                    "content": resp_content,
-                    "redirectURL": "",
-                    "headersSize": -1,
-                    "bodySize": resp_body_size
-                },
-                "cache": {},
-                "timings": {
-                    "send": 0,
-                    "wait": resp.map_or(0, |r| r.latency_ms),
-                    "receive": 0
-                }
             })
-        }).collect();
+            .collect();
 
         let har = json!({
             "log": {
@@ -178,7 +190,10 @@ impl Exporter {
             }
 
             if let Some(ref resp) = ex.response {
-                output.push_str(&format!("\nHTTP/1.1 {} {}\n", resp.status, resp.status_text));
+                output.push_str(&format!(
+                    "\nHTTP/1.1 {} {}\n",
+                    resp.status, resp.status_text
+                ));
                 for (k, v) in &resp.headers {
                     output.push_str(&format!("{}: {}\n", k, v));
                 }
@@ -202,8 +217,10 @@ impl Exporter {
             groups.entry(&ex.request.host).or_default().push(ex);
         }
 
-        let items: Vec<serde_json::Value> = groups.iter().map(|(host, group_exchanges)| {
-            let group_items: Vec<serde_json::Value> = group_exchanges.iter().map(|ex| {
+        let items: Vec<serde_json::Value> = groups
+            .iter()
+            .map(|(host, group_exchanges)| {
+                let group_items: Vec<serde_json::Value> = group_exchanges.iter().map(|ex| {
                 let req = &ex.request;
 
                 let header_list: Vec<serde_json::Value> = req.headers.iter()
@@ -212,9 +229,8 @@ impl Exporter {
 
                 let body = if let Some(ref b) = req.body {
                     let mime = guess_mime_type(&req.headers);
-                    let mode = if mime.contains("json") { "raw" } else { "raw" };
                     json!({
-                        "mode": mode,
+                        "mode": "raw",
                         "raw": String::from_utf8_lossy(b).to_string(),
                         "options": {
                             "raw": {
@@ -238,11 +254,12 @@ impl Exporter {
                 })
             }).collect();
 
-            json!({
-                "name": host,
-                "item": group_items
+                json!({
+                    "name": host,
+                    "item": group_items
+                })
             })
-        }).collect();
+            .collect();
 
         let collection = json!({
             "info": {
@@ -292,7 +309,8 @@ fn to_postman_url(url: &str) -> serde_json::Value {
         }
 
         if let Some(q) = query {
-            let queries: Vec<serde_json::Value> = q.split('&')
+            let queries: Vec<serde_json::Value> = q
+                .split('&')
                 .filter_map(|pair| {
                     let mut parts = pair.splitn(2, '=');
                     let key = parts.next()?;
@@ -365,25 +383,45 @@ mod tests {
         assert!(url.get("query").is_none());
     }
 
-    #[test]
-    fn test_postman_export_structure() {
+    #[tokio::test]
+    async fn test_postman_export_structure() {
         let exchanges = vec![
-            make_exchange("GET", "https://api.example.com/v1/users", "api.example.com", "/v1/users", 200),
-            make_exchange("POST", "https://api.example.com/v1/users", "api.example.com", "/v1/users", 201),
+            make_exchange(
+                "GET",
+                "https://api.example.com/v1/users",
+                "api.example.com",
+                "/v1/users",
+                200,
+            ),
+            make_exchange(
+                "POST",
+                "https://api.example.com/v1/users",
+                "api.example.com",
+                "/v1/users",
+                201,
+            ),
             make_exchange("GET", "https://other.com/data", "other.com", "/data", 200),
         ];
 
-        let exporter = Exporter::new_fake();
+        let exporter = Exporter::new_fake().await;
         let json_str = exporter.to_postman(&exchanges, "test-session").unwrap();
         let collection: serde_json::Value = serde_json::from_str(&json_str).unwrap();
 
         assert_eq!(collection["info"]["name"], "ledger session: test-session");
-        assert!(collection["info"]["_postman_id"].as_str().unwrap().len() > 0);
+        assert!(
+            !collection["info"]["_postman_id"]
+                .as_str()
+                .unwrap()
+                .is_empty()
+        );
 
         let items = collection["item"].as_array().unwrap();
         assert_eq!(items.len(), 2); // 2 groups: api.example.com, other.com
 
-        let api_group = items.iter().find(|i| i["name"] == "api.example.com").unwrap();
+        let api_group = items
+            .iter()
+            .find(|i| i["name"] == "api.example.com")
+            .unwrap();
         assert_eq!(api_group["item"].as_array().unwrap().len(), 2);
 
         let other_group = items.iter().find(|i| i["name"] == "other.com").unwrap();
@@ -391,18 +429,12 @@ mod tests {
     }
 
     impl Exporter {
-        fn new_fake() -> Self {
-            // We don't need a real pool for these tests since to_postman doesn't use it
-            
+        async fn new_fake() -> Self {
             use sqlx::sqlite::SqlitePoolOptions;
-            // Create a dummy pool - we won't actually query it
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            let pool = rt.block_on(async {
-                SqlitePoolOptions::new()
-                    .connect("sqlite::memory:")
-                    .await
-                    .unwrap()
-            });
+            let pool = SqlitePoolOptions::new()
+                .connect("sqlite::memory:")
+                .await
+                .unwrap();
             Self { pool }
         }
     }

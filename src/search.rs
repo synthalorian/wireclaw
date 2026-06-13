@@ -1,7 +1,6 @@
 //! Search and filter module for captured traffic.
 
 use anyhow::Result;
-use regex::Regex;
 use sqlx::SqlitePool;
 
 use crate::db;
@@ -41,15 +40,5 @@ impl SearchEngine {
         }
 
         db::search_exchanges(&self.pool, &filter).await
-    }
-
-    #[allow(dead_code)]
-    pub async fn filter(&self, filter: &Filter) -> Result<Vec<Exchange>> {
-        db::search_exchanges(&self.pool, filter).await
-    }
-
-    #[allow(dead_code)]
-    pub fn compile_pattern(pattern: &str) -> Result<Regex> {
-        Regex::new(pattern).map_err(|e| anyhow::anyhow!("invalid regex '{pattern}': {e}"))
     }
 }

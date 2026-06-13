@@ -91,12 +91,21 @@ impl ChainEngine {
     }
 
     /// Replay a chain of requests, extracting variables along the way.
-    pub async fn replay_chain(&self, steps: &[ChainStep], _dry_run: bool) -> Result<HashMap<String, String>> {
+    pub async fn replay_chain(
+        &self,
+        steps: &[ChainStep],
+        _dry_run: bool,
+    ) -> Result<HashMap<String, String>> {
         let mut vars: HashMap<String, String> = HashMap::new();
         let replay = ReplayEngine::new(self.pool.clone());
 
         for (i, step) in steps.iter().enumerate() {
-            eprintln!("[ledger] chain step {}/{}: request {}", i + 1, steps.len(), step.request_id);
+            eprintln!(
+                "[ledger] chain step {}/{}: request {}",
+                i + 1,
+                steps.len(),
+                step.request_id
+            );
 
             // Fetch the request
             let mut exchange = db::get_request_by_id(&self.pool, &step.request_id)
@@ -121,13 +130,22 @@ impl ChainEngine {
                             eprintln!("[ledger] extracted ${{{}}} = {value_str}", extract.var_name);
                             vars.insert(extract.var_name.clone(), value_str);
                         } else {
-                            eprintln!("[ledger] warning: JSON path not found for ${{{}}}", extract.var_name);
+                            eprintln!(
+                                "[ledger] warning: JSON path not found for ${{{}}}",
+                                extract.var_name
+                            );
                         }
                     } else {
-                        eprintln!("[ledger] warning: response body is not valid JSON, cannot extract ${{{}}}", extract.var_name);
+                        eprintln!(
+                            "[ledger] warning: response body is not valid JSON, cannot extract ${{{}}}",
+                            extract.var_name
+                        );
                     }
                 } else {
-                    eprintln!("[ledger] warning: no response body to extract ${{{}}}", extract.var_name);
+                    eprintln!(
+                        "[ledger] warning: no response body to extract ${{{}}}",
+                        extract.var_name
+                    );
                 }
             }
         }
@@ -205,7 +223,10 @@ mod tests {
             Some(Value::String("abc123".to_string()))
         );
         assert_eq!(
-            extract_json_value(&json, &["data".to_string(), "user".to_string(), "id".to_string()]),
+            extract_json_value(
+                &json,
+                &["data".to_string(), "user".to_string(), "id".to_string()]
+            ),
             Some(Value::Number(42.into()))
         );
         assert_eq!(
@@ -240,15 +261,17 @@ mod tests {
 
         assert_eq!(req.url, "https://api.example.com/users/42");
         assert_eq!(req.path, "/users/42");
-        assert_eq!(req.headers.get("authorization").unwrap(), "Bearer secret123");
+        assert_eq!(
+            req.headers.get("authorization").unwrap(),
+            "Bearer secret123"
+        );
         assert_eq!(req.body, Some(br#"{"user_id":"42"}"#.to_vec()));
     }
 
     #[test]
     fn test_parse_chain() {
-        let steps = ChainEngine::parse_chain(
-            "req1:token=data.token;req2:user_id=data.user.id"
-        ).unwrap();
+        let steps =
+            ChainEngine::parse_chain("req1:token=data.token;req2:user_id=data.user.id").unwrap();
 
         assert_eq!(steps.len(), 2);
         assert_eq!(steps[0].request_id, "req1");

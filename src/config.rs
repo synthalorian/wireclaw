@@ -79,8 +79,9 @@ pub fn load_config(path: &str) -> Result<Config> {
 
 fn shellexpand(path: &str) -> String {
     if path.starts_with("~/")
-        && let Some(home) = dirs::home_dir() {
-            return format!("{}{}", home.display(), &path[1..]);
-        }
+        && let Some(home) = dirs::home_dir()
+    {
+        return format!("{}{}", home.display(), &path[1..]);
+    }
     path.to_string()
 }

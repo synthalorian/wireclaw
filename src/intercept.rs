@@ -3,7 +3,6 @@
 //! When `--intercept` is enabled, matching requests are paused before
 //! forwarding, allowing the user to view, modify, forward, or drop them.
 
-
 use anyhow::{Context, Result};
 use regex::Regex;
 
@@ -11,7 +10,6 @@ use crate::models::CapturedRequest;
 
 /// A rule that determines which requests to intercept.
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct InterceptRule {
     pub method: Option<Regex>,
     pub path: Option<Regex>,
@@ -21,7 +19,6 @@ pub struct InterceptRule {
 impl InterceptRule {
     /// Parse a rule from a filter expression string.
     /// Syntax: `method=POST,path=/api/.*,host=api.example.com`
-    #[allow(dead_code)]
     pub fn parse(expr: &str) -> Result<Self> {
         let mut method = None;
         let mut path = None;
@@ -52,22 +49,21 @@ impl InterceptRule {
     }
 
     /// Check if a request matches this rule.
-    #[allow(dead_code)]
     pub fn matches(&self, req: &CapturedRequest) -> bool {
-        if let Some(ref re) = self.method {
-            if !re.is_match(&req.method) {
-                return false;
-            }
+        if let Some(ref re) = self.method
+            && !re.is_match(&req.method)
+        {
+            return false;
         }
-        if let Some(ref re) = self.path {
-            if !re.is_match(&req.path) {
-                return false;
-            }
+        if let Some(ref re) = self.path
+            && !re.is_match(&req.path)
+        {
+            return false;
         }
-        if let Some(ref re) = self.host {
-            if !re.is_match(&req.host) {
-                return false;
-            }
+        if let Some(ref re) = self.host
+            && !re.is_match(&req.host)
+        {
+            return false;
         }
         true
     }
@@ -75,7 +71,6 @@ impl InterceptRule {
 
 /// Decision made by the user for an intercepted request.
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[allow(dead_code)]
 pub enum InterceptDecision {
     /// Forward the request as-is.
     Forward,
@@ -86,27 +81,26 @@ pub enum InterceptDecision {
 }
 
 /// Intercept engine that holds active rules and handles user interaction.
-#[allow(dead_code)]
 pub struct InterceptEngine {
     rules: Vec<InterceptRule>,
     interactive: bool,
 }
 
 impl InterceptEngine {
-    #[allow(dead_code)]
     pub fn new(rules: Vec<InterceptRule>, interactive: bool) -> Self {
         Self { rules, interactive }
     }
 
     /// Check if a request should be intercepted.
-    #[allow(dead_code)]
     pub fn should_intercept(&self, req: &CapturedRequest) -> bool {
         self.rules.iter().any(|rule| rule.matches(req))
     }
 
     /// Prompt the user for a decision on an intercepted request.
-    #[allow(dead_code)]
-    pub async fn prompt(&self, req: &CapturedRequest) -> Result<(InterceptDecision, Option<CapturedRequest>)> {
+    pub async fn prompt(
+        &self,
+        req: &CapturedRequest,
+    ) -> Result<(InterceptDecision, Option<CapturedRequest>)> {
         if !self.interactive {
             // Non-interactive mode: auto-forward all intercepted requests
             return Ok((InterceptDecision::Forward, None));
@@ -160,7 +154,6 @@ impl InterceptEngine {
 }
 
 /// Serialize a request to JSON, open it in $EDITOR, parse it back.
-#[allow(dead_code)]
 async fn edit_request_in_editor(req: &CapturedRequest) -> Result<CapturedRequest> {
     let editor = std::env::var("EDITOR").unwrap_or_else(|_| "nano".to_string());
 

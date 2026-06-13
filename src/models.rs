@@ -3,7 +3,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CapturedRequest {
@@ -16,23 +15,6 @@ pub struct CapturedRequest {
     pub body: Option<Vec<u8>>,
     pub timestamp: DateTime<Utc>,
     pub session: String,
-}
-
-impl CapturedRequest {
-    #[allow(dead_code)]
-    pub fn new(method: String, url: String, host: String, session: String) -> Self {
-        Self {
-            id: Uuid::new_v4().to_string(),
-            path: url.clone(),
-            method,
-            url,
-            host,
-            headers: HashMap::new(),
-            body: None,
-            timestamp: Utc::now(),
-            session,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

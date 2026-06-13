@@ -9,3 +9,9 @@
 .DS_Store
 .env
 ledger.log
+
+# AI session artifacts
+.sandbox-home/
+.claw/
+.omo/
+.clawd-todos.json

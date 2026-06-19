@@ -38,7 +38,7 @@ impl ReplayEngine {
 
         for i in 0..count {
             if count > 1 {
-                eprintln!("[ledger] replay {}/{}: {}", i + 1, count, request_id);
+                eprintln!("[wireclaw] replay {}/{}: {}", i + 1, count, request_id);
             }
             self.replay_exchange(&exchange, dry_run, diff, pre_script, post_script)
                 .await?;
@@ -75,7 +75,7 @@ impl ReplayEngine {
         for i in 0..count {
             if count > 1 {
                 eprintln!(
-                    "[ledger] replay {}/{}: {} (edited)",
+                    "[wireclaw] replay {}/{}: {} (edited)",
                     i + 1,
                     count,
                     request_id
@@ -104,12 +104,12 @@ impl ReplayEngine {
         let exchanges = db::search_exchanges(&self.pool, &filter).await?;
 
         if exchanges.is_empty() {
-            eprintln!("[ledger] no requests matched filter: {filter_expr}");
+            eprintln!("[wireclaw] no requests matched filter: {filter_expr}");
             return Ok(());
         }
 
         eprintln!(
-            "[ledger] replaying {} requests (dry_run={dry_run}, diff={diff})",
+            "[wireclaw] replaying {} requests (dry_run={dry_run}, diff={diff})",
             exchanges.len()
         );
 
@@ -175,7 +175,7 @@ impl ReplayEngine {
             .to_bytes();
 
         eprintln!(
-            "[ledger] replayed {} {} -> {} ({} ms, {} bytes)",
+            "[wireclaw] replayed {} {} -> {} ({} ms, {} bytes)",
             req.method,
             req.url,
             status.as_u16(),
@@ -211,7 +211,7 @@ impl ReplayEngine {
             if let Some(ref original_resp) = exchange.response {
                 print_diff(original_resp, &replayed_resp);
             } else {
-                eprintln!("[ledger] diff: no original response to compare against");
+                eprintln!("[wireclaw] diff: no original response to compare against");
             }
         }
 
@@ -219,7 +219,7 @@ impl ReplayEngine {
         if let Some(script) = post_script {
             let engine = crate::scripts::ScriptEngine::new()?;
             if let Err(e) = engine.run_post_response(script, &replayed_resp) {
-                eprintln!("[ledger] post-response script error: {e}");
+                eprintln!("[wireclaw] post-response script error: {e}");
             }
         }
 
@@ -250,7 +250,7 @@ impl ReplayEngine {
             .to_bytes();
 
         eprintln!(
-            "[ledger] replayed {} {} -> {} ({} ms, {} bytes)",
+            "[wireclaw] replayed {} {} -> {} ({} ms, {} bytes)",
             req.method,
             req.url,
             status.as_u16(),

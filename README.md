@@ -7,9 +7,9 @@
  ╚══════╝╚══════╝╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝╚══════╝
 ```
 
-# ledger — API Request Logger & Replay Engine
+# wireclaw — API Request Logger & Replay Engine
 
-A local HTTP proxy that captures every API request/response, stores them in SQLite, and lets you **replay**, **search**, and **export** them. Think Charles Proxy meets `jq`, but terminal-native and zero-config.
+A local HTTP proxy that captures every API request/response, stores them in SQLite, and lets you **replay**, **search**, **diff**, **monitor**, and **export** them. Think Charles Proxy meets `jq`, but terminal-native, zero-config, and with a real-time web dashboard.
 
 ---
 
@@ -18,13 +18,17 @@ A local HTTP proxy that captures every API request/response, stores them in SQLi
 - **Capture** — Spin up a local HTTP proxy. Every request and response gets logged to SQLite, organized by session.
 - **HTTPS MITM** — Terminate TLS with auto-generated per-host certs signed by a local CA. Inspect encrypted traffic.
 - **Replay** — Re-send any captured request with original headers and body. Supports dry-run, diff, edit in $EDITOR, batch replay with filters, and request chaining with variable extraction.
+- **Web Dashboard** — Real-time traffic visualization in your browser with WebSocket updates, performance metrics, and one-click OpenAPI export.
+- **OpenAPI Generation** — Auto-generate OpenAPI 3.0 specs from captured traffic. No manual documentation needed.
+- **Request Diff** — Compare two requests side-by-side with JSON-aware structural diff.
+- **Performance Monitoring** — Track latency distributions, identify slow requests, and monitor error rates per host.
 - **Intercept** — Pause matching requests at the proxy, inspect/modify/drop before forwarding.
 - **Pre/Post Scripts** — Lua hooks for modifying requests before replay and asserting on responses.
 - **Search** — Find requests by method, path, status code, header values, or body content using regex patterns.
 - **Export** — Dump sessions to HAR 1.2, curl commands, raw HTTP, or Postman collections.
-- **TUI** — Full interactive terminal UI with live request streaming, keyboard navigation, search/filter, host grouping, and JSON syntax highlighting.
+- **TUI** — Full interactive terminal UI with live request streaming, keyboard navigation, search/filter, host grouping, latency highlighting, and JSON syntax highlighting.
 - **Sessions** — Named capture sessions with independent SQLite databases. Switch contexts without losing history.
-- **Zero Config** — Works out of the box. Customizable via `~/.config/ledger/config.toml` when you need it.
+- **Zero Config** — Works out of the box. Customizable via `~/.config/wireclaw/config.toml` when you need it.
 
 ---
 
@@ -32,7 +36,7 @@ A local HTTP proxy that captures every API request/response, stores them in SQLi
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                          ledger                                  │
+│                          wireclaw                                  │
 │                                                                  │
 │  ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐  │
 │  │   CLI     │    │   TUI    │    │  Config  │    │  Error   │  │
@@ -51,7 +55,7 @@ A local HTTP proxy that captures every API request/response, stores them in SQLi
 │     │  ┌──────────────────────────────────────▼───────────┐     │
 │     └──│              SQLite Storage (sqlx)               │     │
 │        │   sessions.db → requests → responses              │     │
-│        │   ~/.local/share/ledger/sessions/<name>.db        │     │
+│        │   ~/.local/share/wireclaw/sessions/<name>.db        │     │
 │        └──────────────────────────────────────────────────┘     │
 │                                                                  │
 │  Data Flow: Client → Proxy → Target → Proxy → Client            │
@@ -69,53 +73,53 @@ A local HTTP proxy that captures every API request/response, stores them in SQLi
 #### From Source
 
 ```bash
-git clone https://github.com/synthalorian/ledger.git
-cd ledger
+git clone https://github.com/synthalorian/wireclaw.git
+cd wireclaw
 cargo install --path .
 
 # Or build and run directly
 cargo build --release
-./target/release/ledger --help
+./target/release/wireclaw --help
 ```
 
 #### Docker
 
 ```bash
 # Pull from GitHub Container Registry
-docker pull ghcr.io/synthalorian/ledger:latest
+docker pull ghcr.io/synthalorian/wireclaw:latest
 
 # Run capture proxy
-docker run -p 8080:8080 -v ledger-data:/data ghcr.io/synthalorian/ledger capture
+docker run -p 8080:8080 -v wireclaw-data:/data ghcr.io/synthalorian/wireclaw capture
 
 # Run with named session
-docker run -p 8080:8080 -v ledger-data:/data ghcr.io/synthalorian/ledger capture --session my-api
+docker run -p 8080:8080 -v wireclaw-data:/data ghcr.io/synthalorian/wireclaw capture --session my-api
 
 # Replay from a persisted session
-docker run -v ledger-data:/data ghcr.io/synthalorian/ledger replay --id <request-id>
+docker run -v wireclaw-data:/data ghcr.io/synthalorian/wireclaw replay --id <request-id>
 
 # List requests
-docker run -v ledger-data:/data ghcr.io/synthalorian/ledger list
+docker run -v wireclaw-data:/data ghcr.io/synthalorian/wireclaw list
 ```
 
 ### Capture Traffic
 
 ```bash
 # Start proxy on default port 8080
-ledger capture
+wireclaw capture
 
 # Capture with a named session
-ledger capture --session my-api-testing
+wireclaw capture --session my-api-testing
 
 # Verbose mode — see requests as they flow through
-ledger capture --verbose
+wireclaw capture --verbose
 
 # Intercept mode — pause and inspect matching requests
-ledger capture --intercept
-ledger capture --intercept --intercept-rule "method=POST,path=/api/users"
+wireclaw capture --intercept
+wireclaw capture --intercept --intercept-rule "method=POST,path=/api/users"
 
 # Generate and show CA certificate for HTTPS MITM
-ledger ca generate
-ledger ca show
+wireclaw ca generate
+wireclaw ca show
 
 # Point your client at the proxy
 export HTTP_PROXY=http://127.0.0.1:8080
@@ -127,91 +131,151 @@ curl https://api.example.com/users
 
 ```bash
 # Show latest 50 requests
-ledger list
+wireclaw list
 
 # Show more, with headers and bodies
-ledger list --limit 200 --headers --bodies
+wireclaw list --limit 200 --headers --bodies
 
 # From a specific session
-ledger list --session my-api-testing
+wireclaw list --session my-api-testing
 ```
 
 ### Search
 
 ```bash
 # Find by path pattern
-ledger search --query "/api/users" --field path
+wireclaw search --query "/api/users" --field path
 
 # Find by method
-ledger search --query "POST" --field method
+wireclaw search --query "POST" --field method
 
 # Regex supported
-ledger search --query "status.*active" --field body
+wireclaw search --query "status.*active" --field body
 ```
 
 ### Replay
 
 ```bash
 # Replay a specific request by ID
-ledger replay --id abc-123-def
+wireclaw replay --id abc-123-def
 
 # Dry run — print the request without sending
-ledger replay --id abc-123-def --dry-run
+wireclaw replay --id abc-123-def --dry-run
 
 # Diff — compare original vs replayed response
-ledger replay --id abc-123-def --diff
+wireclaw replay --id abc-123-def --diff
 
 # Edit in $EDITOR before replaying
-ledger replay --id abc-123-def --edit
+wireclaw replay --id abc-123-def --edit
 
 # Replay with Lua pre/post scripts
-ledger replay --id abc-123-def --pre-script auth.lua --post-script assert.lua
+wireclaw replay --id abc-123-def --pre-script auth.lua --post-script assert.lua
 
 # Replay all matching a filter
-ledger replay --filter "method=POST,path=/api/users"
+wireclaw replay --filter "method=POST,path=/api/users"
 
 # Replay multiple times (load testing)
-ledger replay --id abc-123-def --count 10
+wireclaw replay --id abc-123-def --count 10
 
 # Chain requests with variable extraction
-ledger replay --chain "req1:token=data.token;req2:user_id=data.user.id"
+wireclaw replay --chain "req1:token=data.token;req2:user_id=data.user.id"
 ```
 
 ### Export
 
 ```bash
 # Export to HAR format
-ledger export --format har --session my-api-testing
+wireclaw export --format har --session my-api-testing
 
 # Export as curl commands
-ledger export --format curl --output requests.sh
+wireclaw export --format curl --output requests.sh
 
 # Export as Postman collection
-ledger export --format postman --output collection.json
+wireclaw export --format postman --output collection.json
 
 # Raw HTTP dump
-ledger export --format raw
+wireclaw export --format raw
 ```
 
 ### Interactive TUI
 
 ```bash
 # Launch the terminal UI
-ledger tui
+wireclaw tui
 
 # With a specific session
-ledger tui --session my-api-testing
+wireclaw tui --session my-api-testing
 ```
+
+### Web Dashboard
+
+Launch a real-time web dashboard for visualizing captured traffic:
+
+```bash
+# Capture traffic and launch the dashboard in one process (true real-time updates)
+wireclaw capture --session my-api --dashboard
+
+# Or run the dashboard separately against an existing session
+wireclaw dashboard --session my-api
+
+# Custom dashboard bind address
+wireclaw dashboard --session my-api --addr 0.0.0.0:8080
+wireclaw capture --session my-api --dashboard --dashboard-addr 0.0.0.0:8080
+```
+
+The dashboard shows:
+- Live request stream with WebSocket updates
+- Request details (headers, body, response)
+- Performance metrics (latency, error rates)
+- One-click OpenAPI export
+- Host filtering and search
+
+### OpenAPI Generation
+
+Auto-generate OpenAPI specs from captured traffic:
+
+```bash
+# Generate and print to stdout
+wireclaw openapi --session my-api
+
+# Save to file
+wireclaw openapi --session my-api --output api-spec.json
+```
+
+### Request Diff
+
+Compare two requests side-by-side:
+
+```bash
+wireclaw diff --a req-id-1 --b req-id-2 --session my-api
+```
+
+Shows structural differences in headers, body, status, and latency.
+
+### Performance Monitoring
+
+View detailed performance metrics:
+
+```bash
+wireclaw stats --session my-api
+```
+
+Shows:
+- Total requests/responses
+- Average, min, max latency
+- Error rate
+- Top 10 slowest requests
+- Per-host breakdown
 
 ---
 
 ## Configuration
 
-ledger looks for config at `~/.config/ledger/config.toml`. If it doesn't exist, sensible defaults are used.
+wireclaw looks for config at `~/.config/wireclaw/config.toml`. If it doesn't exist, sensible defaults are used.
 
 ```toml
 listen_addr = "127.0.0.1:8080"
-data_dir = "~/.local/share/ledger"
+data_dir = "~/.local/share/wireclaw"
 
 [session]
 auto_create = true
@@ -236,8 +300,8 @@ max_redirects = 10
 
 | Path | Purpose |
 |------|---------|
-| `~/.config/ledger/config.toml` | Configuration file |
-| `~/.local/share/ledger/sessions/<name>.db` | Per-session SQLite database |
+| `~/.config/wireclaw/config.toml` | Configuration file |
+| `~/.local/share/wireclaw/sessions/<name>.db` | Per-session SQLite database |
 
 Each session gets its own SQLite database. The schema includes indexed tables for requests, responses, and session metadata.
 
@@ -272,6 +336,6 @@ Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for detai
 
 ## Credits
 
-Developed by **synth** ([synthalorian](https://github.com/synthalorian)) with assistance from **synthshark** 🎹🦈 — a digital entity from the neon grid of 1984.
+Developed by **synth** ([synthalorian](https://github.com/synthalorian)) with assistance from **synthclaw** 🎹🦞 — a digital entity from the neon grid of 1984.
 
-*This is the wave. 🎹🦈🌆*
+*This is the wave. 🎹🦞🌆*

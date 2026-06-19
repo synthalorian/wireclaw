@@ -1,12 +1,12 @@
-# Contributing to ledger
+# Contributing to Wireclaw
 
 Thanks for your interest in contributing! Here's how to get started.
 
 ## Development Setup
 
 ```bash
-git clone https://github.com/synthalorian/ledger.git
-cd ledger
+git clone https://github.com/synthalorian/wireclaw.git
+cd wireclaw
 cargo build
 cargo test
 ```

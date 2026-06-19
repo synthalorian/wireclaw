@@ -1,15 +1,15 @@
 [package]
-name = "ledger"
+name = "wireclaw"
 version = "0.2.0"
 edition = "2024"
 description = "Local HTTP proxy that captures, stores, replays, and inspects API traffic — terminal-native and zero-config"
 license = "Apache-2.0"
-repository = "https://github.com/synthalorian/ledger"
+repository = "https://github.com/synthalorian/wireclaw"
 keywords = ["http", "proxy", "debugging", "cli", "tui"]
 categories = ["command-line-utilities", "web-programming", "development-tools"]
 
 [[bin]]
-name = "ledger"
+name = "wireclaw"
 path = "src/main.rs"
 
 [dependencies]
@@ -20,11 +20,11 @@ clap = { version = "4", features = ["derive", "env", "color"] }
 hyper = { version = "1", features = ["client", "server", "http1", "http2"] }
 http-body-util = "0.1"
 hyper-util = { version = "0.1", features = ["client-legacy", "server", "http1", "http2", "tokio"] }
-hyper-rustls = { version = "0.27", features = ["http1", "http2", "tls12", "logging"] }
+hyper-rustls = { version = "0.27", features = ["http1", "http2", "tls12", "logging", "ring"] }
 rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "ring"] }
 rustls-pemfile = "2"
 rcgen = { version = "0.14", features = ["x509-parser", "pem"] }
-tokio-rustls = "0.26"
+tokio-rustls = { version = "0.26", features = ["ring"] }
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
@@ -71,3 +71,16 @@ futures-util = "0.3"
 
 # Lua scripting for pre/post request hooks
 mlua = { version = "0.10", features = ["lua54", "async", "send", "serialize"] }
+
+# Web dashboard
+axum = { version = "0.8", features = ["ws"] }
+tower-http = { version = "0.6", features = ["fs", "cors"] }
+
+# OpenAPI generation helpers
+indexmap = "2"
+
+# Performance metrics
+hdrhistogram = "7"
+
+# JSON schema inference
+schemars = "0.8"

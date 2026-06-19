@@ -101,7 +101,7 @@ impl ChainEngine {
 
         for (i, step) in steps.iter().enumerate() {
             eprintln!(
-                "[ledger] chain step {}/{}: request {}",
+                "[wireclaw] chain step {}/{}: request {}",
                 i + 1,
                 steps.len(),
                 step.request_id
@@ -127,23 +127,26 @@ impl ChainEngine {
                                 Value::String(s) => s,
                                 other => other.to_string(),
                             };
-                            eprintln!("[ledger] extracted ${{{}}} = {value_str}", extract.var_name);
+                            eprintln!(
+                                "[wireclaw] extracted ${{{}}} = {value_str}",
+                                extract.var_name
+                            );
                             vars.insert(extract.var_name.clone(), value_str);
                         } else {
                             eprintln!(
-                                "[ledger] warning: JSON path not found for ${{{}}}",
+                                "[wireclaw] warning: JSON path not found for ${{{}}}",
                                 extract.var_name
                             );
                         }
                     } else {
                         eprintln!(
-                            "[ledger] warning: response body is not valid JSON, cannot extract ${{{}}}",
+                            "[wireclaw] warning: response body is not valid JSON, cannot extract ${{{}}}",
                             extract.var_name
                         );
                     }
                 } else {
                     eprintln!(
-                        "[ledger] warning: no response body to extract ${{{}}}",
+                        "[wireclaw] warning: no response body to extract ${{{}}}",
                         extract.var_name
                     );
                 }

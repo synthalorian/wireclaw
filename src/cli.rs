@@ -4,10 +4,10 @@ use clap::{Parser, Subcommand};
 
 #[derive(Parser, Debug, Clone)]
 #[command(
-    name = "ledger",
+    name = "wireclaw",
     version,
     about = "Local HTTP proxy that captures, replays, and inspects API traffic",
-    long_about = "ledger — an API request logger & replay engine.\n\
+    long_about = "wireclaw — an API request logger & replay engine.\n\
         Spins up a local HTTP proxy, captures every request/response into SQLite,\n\
         and gives you a terminal-native interface to search, replay, and export."
 )]
@@ -19,15 +19,15 @@ pub struct Cli {
         long,
         global = true,
         default_value = "127.0.0.1:8080",
-        env = "LEDGER_ADDR"
+        env = "WIRECLAW_ADDR"
     )]
     pub addr: String,
 
     #[arg(
         long,
         global = true,
-        default_value = "~/.config/ledger/config.toml",
-        env = "LEDGER_CONFIG"
+        default_value = "~/.config/wireclaw/config.toml",
+        env = "WIRECLAW_CONFIG"
     )]
     pub config: String,
 
@@ -50,6 +50,12 @@ pub enum Commands {
 
         #[arg(long)]
         intercept_rule: Option<String>,
+
+        #[arg(long, default_value_t = false)]
+        dashboard: bool,
+
+        #[arg(long, default_value = "127.0.0.1:8746")]
+        dashboard_addr: String,
     },
 
     #[command(about = "Replay a previously captured request")]
@@ -140,6 +146,36 @@ pub enum Commands {
     Ca {
         #[command(subcommand)]
         command: CaCommands,
+    },
+
+    #[command(about = "Launch the web dashboard for real-time traffic visualization")]
+    Dashboard {
+        #[arg(short, long, default_value = "default")]
+        session: String,
+
+        #[arg(long, default_value = "127.0.0.1:8746")]
+        addr: String,
+    },
+
+    #[command(about = "Compare two captured requests side-by-side")]
+    Diff {
+        #[arg(short, long)]
+        a: String,
+
+        #[arg(short, long)]
+        b: String,
+
+        #[arg(short, long, default_value = "default")]
+        session: String,
+    },
+
+    #[command(about = "Generate OpenAPI spec from captured traffic")]
+    Openapi {
+        #[arg(short, long, default_value = "default")]
+        session: String,
+
+        #[arg(short, long)]
+        output: Option<String>,
     },
 
     #[command(about = "Replay a WebSocket conversation from captured frames")]

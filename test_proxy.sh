@@ -2,10 +2,10 @@
 set -e
 
 # Clean up
-rm -f /home/synth/.local/share/ledger/sessions/https_test.db /tmp/ledger_https.log
+rm -f /home/synth/.local/share/wireclaw/sessions/https_test.db /tmp/wireclaw_https.log
 
 # Start proxy in background, capture PID
-/home/synth/projects/ledger/target/release/ledger capture --session https_test --verbose --addr 127.0.0.1:9090 > /tmp/ledger_https.log 2>&1 &
+/home/synth/projects/active/wireclaw/target/release/wireclaw capture --session https_test --verbose --addr 127.0.0.1:9090 > /tmp/wireclaw_https.log 2>&1 &
 PROXY_PID=$!
 echo "Proxy PID: $PROXY_PID"
 
@@ -15,7 +15,7 @@ sleep 2
 # Check it's running
 if ! kill -0 $PROXY_PID 2>/dev/null; then
     echo "Proxy died immediately"
-    cat /tmp/ledger_cap.log
+    cat /tmp/wireclaw_https.log
     exit 1
 fi
 
@@ -31,8 +31,8 @@ wait $PROXY_PID 2>/dev/null || true
 
 # Show logs
 echo "=== Proxy logs ==="
-cat /tmp/ledger_https.log
+cat /tmp/wireclaw_https.log
 
 # Show DB contents
 echo "=== DB contents ==="
-/home/synth/projects/ledger/target/release/ledger list --session https_test --limit 5
+/home/synth/projects/active/wireclaw/target/release/wireclaw list --session https_test --limit 5

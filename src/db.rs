@@ -389,6 +389,41 @@ impl ExchangeRow {
     }
 }
 
+pub async fn get_session_stats(pool: &SqlitePool, session: &str) -> Result<serde_json::Value> {
+    let total_requests: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM requests WHERE session = ?")
+        .bind(session)
+        .fetch_one(pool)
+        .await?;
+
+    let total_responses: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM responses r JOIN requests req ON r.request_id = req.id WHERE req.session = ?"
+    )
+    .bind(session)
+    .fetch_one(pool)
+    .await?;
+
+    let error_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM responses r JOIN requests req ON r.request_id = req.id WHERE req.session = ? AND r.status >= 400"
+    )
+    .bind(session)
+    .fetch_one(pool)
+    .await?;
+
+    let avg_latency: Option<f64> = sqlx::query_scalar(
+        "SELECT AVG(r.latency_ms) FROM responses r JOIN requests req ON r.request_id = req.id WHERE req.session = ?"
+    )
+    .bind(session)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(serde_json::json!({
+        "total_requests": total_requests,
+        "total_responses": total_responses,
+        "error_count": error_count,
+        "avg_latency_ms": avg_latency.unwrap_or(0.0)
+    }))
+}
+
 // ── Tests ───────────────────────────────────────────────────────────────────
 
 #[cfg(test)]

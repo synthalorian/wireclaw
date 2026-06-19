@@ -8,7 +8,7 @@
 *~
 .DS_Store
 .env
-ledger.log
+wireclaw.log
 
 # AI session artifacts
 .sandbox-home/

@@ -106,7 +106,7 @@ impl InterceptEngine {
             return Ok((InterceptDecision::Forward, None));
         }
 
-        eprintln!("\n[ledger] INTERCEPTED {} {}", req.method, req.url);
+        eprintln!("\n[wireclaw] INTERCEPTED {} {}", req.method, req.url);
         eprintln!("  Host: {}", req.host);
         eprintln!("  Path: {}", req.path);
         if !req.headers.is_empty() {

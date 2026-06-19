@@ -37,7 +37,7 @@ impl Exporter {
         if let Some(path) = output {
             std::fs::write(path, &content)?;
             eprintln!(
-                "[ledger] exported {} exchanges to {}",
+                "[wireclaw] exported {} exchanges to {}",
                 exchanges.len(),
                 path.display()
             );
@@ -134,13 +134,13 @@ impl Exporter {
             "log": {
                 "version": "1.2",
                 "creator": {
-                    "name": "ledger",
+                    "name": "wireclaw",
                     "version": env!("CARGO_PKG_VERSION")
                 },
                 "pages": [{
                     "startedDateTime": chrono::Utc::now().to_rfc3339(),
                     "id": session,
-                    "title": format!("ledger session: {}", session),
+                    "title": format!("wireclaw session: {}", session),
                     "pageTimings": { "onContentLoad": -1, "onLoad": -1 }
                 }],
                 "entries": entries
@@ -264,8 +264,8 @@ impl Exporter {
         let collection = json!({
             "info": {
                 "_postman_id": uuid::Uuid::new_v4().to_string(),
-                "name": format!("ledger session: {}", session),
-                "description": format!("Exported from Ledger session '{}' with {} requests", session, exchanges.len()),
+                "name": format!("wireclaw session: {}", session),
+                "description": format!("Exported from Wireclaw session '{}' with {} requests", session, exchanges.len()),
                 "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
             },
             "item": items
@@ -407,7 +407,7 @@ mod tests {
         let json_str = exporter.to_postman(&exchanges, "test-session").unwrap();
         let collection: serde_json::Value = serde_json::from_str(&json_str).unwrap();
 
-        assert_eq!(collection["info"]["name"], "ledger session: test-session");
+        assert_eq!(collection["info"]["name"], "wireclaw session: test-session");
         assert!(
             !collection["info"]["_postman_id"]
                 .as_str()

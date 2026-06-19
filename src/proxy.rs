@@ -55,7 +55,7 @@ impl ProxyServer {
 
     pub async fn run(self: Arc<Self>) -> Result<()> {
         let listener = TcpListener::bind(self.listen_addr).await?;
-        eprintln!("[ledger] proxy listening on {}", self.listen_addr);
+        eprintln!("[wireclaw] proxy listening on {}", self.listen_addr);
 
         loop {
             let (stream, _remote) = listener.accept().await?;
@@ -68,7 +68,7 @@ impl ProxyServer {
                 if let Err(e) =
                     handle_connection(stream, tx, session, cert_mgr, intercept_rules).await
                 {
-                    eprintln!("[ledger] proxy connection error: {e}");
+                    eprintln!("[wireclaw] proxy connection error: {e}");
                 }
             });
         }
@@ -167,7 +167,7 @@ async fn handle_connect_tunnel(
     let upstream = match TcpStream::connect(&authority).await {
         Ok(stream) => stream,
         Err(e) => {
-            eprintln!("[ledger] CONNECT failed to {}: {}", authority, e);
+            eprintln!("[wireclaw] CONNECT failed to {}: {}", authority, e);
             let response = b"HTTP/1.1 502 Bad Gateway\r\n\r\n";
             client_stream.write_all(response).await?;
             return Ok(());
@@ -189,7 +189,7 @@ async fn handle_connect_tunnel(
         Ok(stream) => stream,
         Err(e) => {
             eprintln!(
-                "[ledger] TLS handshake with client failed for {}: {}",
+                "[wireclaw] TLS handshake with client failed for {}: {}",
                 authority, e
             );
             return Ok(());
@@ -216,7 +216,7 @@ async fn handle_connect_tunnel(
         .await
     {
         eprintln!(
-            "[ledger] HTTPS proxy error for {}: {}",
+            "[wireclaw] HTTPS proxy error for {}: {}",
             authority_for_error, e
         );
     }
@@ -240,8 +240,8 @@ async fn handle_https_request(
     match proxy_https_request(req, tx, session, authority, intercept_rules).await {
         Ok(resp) => Ok(resp),
         Err(e) => {
-            eprintln!("[ledger] HTTPS proxy error: {e}");
-            let body = Full::new(Bytes::from(format!("ledger proxy error: {e}")))
+            eprintln!("[wireclaw] HTTPS proxy error: {e}");
+            let body = Full::new(Bytes::from(format!("wireclaw proxy error: {e}")))
                 .map_err(|never| match never {})
                 .boxed();
             Ok(Response::builder()
@@ -320,7 +320,7 @@ async fn proxy_https_request(
     };
 
     if is_ws_upgrade {
-        eprintln!("[ledger] WebSocket upgrade detected: {} {}", method, uri);
+        eprintln!("[wireclaw] WebSocket upgrade detected: {} {}", method, uri);
     }
 
     // Check intercept rules in HTTPS path too
@@ -330,7 +330,7 @@ async fn proxy_https_request(
             let (decision, modified_req) = engine.prompt(&captured_req).await?;
             match decision {
                 crate::intercept::InterceptDecision::Drop => {
-                    let body = Full::new(Bytes::from("Intercepted and dropped by ledger"))
+                    let body = Full::new(Bytes::from("Intercepted and dropped by wireclaw"))
                         .map_err(|never| match never {})
                         .boxed();
                     return Ok(Response::builder().status(502).body(body)?);
@@ -445,7 +445,7 @@ async fn proxy_https_request(
 
     // Handle WebSocket upgrade
     if is_ws_upgrade && response.status() == hyper::StatusCode::SWITCHING_PROTOCOLS {
-        eprintln!("[ledger] WebSocket upgrade accepted: {} {}", method, uri);
+        eprintln!("[wireclaw] WebSocket upgrade accepted: {} {}", method, uri);
 
         // Capture the 101 response
         let mut upgrade_resp_headers = std::collections::HashMap::new();
@@ -497,7 +497,7 @@ async fn proxy_https_request(
         let request_id_bridge = request_id.clone();
         tokio::spawn(async move {
             let Some(on_upgrade) = on_upgrade else {
-                eprintln!("[ledger] WebSocket upgrade not available");
+                eprintln!("[wireclaw] WebSocket upgrade not available");
                 return;
             };
             match on_upgrade.await {
@@ -510,7 +510,7 @@ async fn proxy_https_request(
                             let client_ws = match tokio_tungstenite::accept_async(client_io).await {
                                 Ok(ws) => ws,
                                 Err(e) => {
-                                    eprintln!("[ledger] WebSocket accept failed: {e}");
+                                    eprintln!("[wireclaw] WebSocket accept failed: {e}");
                                     return;
                                 }
                             };
@@ -521,7 +521,9 @@ async fn proxy_https_request(
                             let upstream_req = match upstream_uri.parse::<Uri>() {
                                 Ok(u) => u,
                                 Err(e) => {
-                                    eprintln!("[ledger] WebSocket upstream URI parse failed: {e}");
+                                    eprintln!(
+                                        "[wireclaw] WebSocket upstream URI parse failed: {e}"
+                                    );
                                     return;
                                 }
                             };
@@ -532,7 +534,7 @@ async fn proxy_https_request(
                                     Ok((ws, _)) => ws,
                                     Err(e) => {
                                         eprintln!(
-                                            "[ledger] WebSocket upstream connect failed: {e}"
+                                            "[wireclaw] WebSocket upstream connect failed: {e}"
                                         );
                                         return;
                                     }
@@ -548,13 +550,13 @@ async fn proxy_https_request(
                             )
                             .await
                             {
-                                eprintln!("[ledger] WebSocket bridge error: {e}");
+                                eprintln!("[wireclaw] WebSocket bridge error: {e}");
                             }
                         }
-                        Err(e) => eprintln!("[ledger] Upstream upgrade failed: {e}"),
+                        Err(e) => eprintln!("[wireclaw] Upstream upgrade failed: {e}"),
                     }
                 }
-                Err(e) => eprintln!("[ledger] Client upgrade failed: {e}"),
+                Err(e) => eprintln!("[wireclaw] Client upgrade failed: {e}"),
             }
         });
 
@@ -638,8 +640,8 @@ async fn handle_request(
     match proxy_request(req, tx, session, intercept_rules).await {
         Ok(resp) => Ok(resp),
         Err(e) => {
-            eprintln!("[ledger] proxy error: {e}");
-            let body = Full::new(Bytes::from(format!("ledger proxy error: {e}")))
+            eprintln!("[wireclaw] proxy error: {e}");
+            let body = Full::new(Bytes::from(format!("wireclaw proxy error: {e}")))
                 .map_err(|never| match never {})
                 .boxed();
             Ok(Response::builder()
@@ -705,7 +707,7 @@ async fn proxy_request(
             let (decision, modified_req) = engine.prompt(&captured_req).await?;
             match decision {
                 crate::intercept::InterceptDecision::Drop => {
-                    let body = Full::new(Bytes::from("Intercepted and dropped by ledger"))
+                    let body = Full::new(Bytes::from("Intercepted and dropped by wireclaw"))
                         .map_err(|never| match never {})
                         .boxed();
                     return Ok(Response::builder().status(502).body(body)?);

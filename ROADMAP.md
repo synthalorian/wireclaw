@@ -1,4 +1,4 @@
-# Ledger v1.0 Roadmap
+# Wireclaw v1.0 Roadmap
 
 ## Current State
 Core loop works: HTTP/HTTPS proxy capture → SQLite storage → list/search/replay/export/TUI.
@@ -11,11 +11,11 @@ Core loop works: HTTP/HTTPS proxy capture → SQLite storage → list/search/rep
 ### P0 — Ship Blockers (do first)
 
 **1. HTTPS MITM Interception** ✅
-- Generate CA cert on first run (or `ledger ca generate`)
+- Generate CA cert on first run (or `wireclaw ca generate`)
 - Sign per-host certs dynamically
 - Terminate TLS at proxy, re-encrypt to target
 - Capture actual request/response bodies inside TLS (JSON payloads, headers)
-- Store CA cert to `~/.local/share/ledger/ca.crt`
+- Store CA cert to `~/.local/share/wireclaw/ca.crt`
 - Trust instructions for browsers/system
 - **Why:** Without this, we're blind to 90% of API traffic
 
@@ -46,13 +46,13 @@ Core loop works: HTTP/HTTPS proxy capture → SQLite storage → list/search/rep
 - Collapse/expand nested objects (optional)
 - **Why:** Raw text dumps are hard to read
 
-**6. Config File Generation (`ledger init`)** ✅
-- `ledger init` creates `~/.config/ledger/config.toml` with defaults
+**6. Config File Generation (`wireclaw init`)** ✅
+- `wireclaw init` creates `~/.config/wireclaw/config.toml` with defaults
 - Include comments explaining each option
 - **Why:** Zero-config is nice, but power users need knobs
 
 **7. Request Editing Before Replay** ✅
-- `ledger replay --id abc --edit` opens $EDITOR with request as JSON
+- `wireclaw replay --id abc --edit` opens $EDITOR with request as JSON
 - Modify headers, body, URL, method
 - Save and replay modified version
 - **Why:** Replaying identical requests is rarely useful
@@ -62,7 +62,7 @@ Core loop works: HTTP/HTTPS proxy capture → SQLite storage → list/search/rep
 ### P2 — Export & Integration
 
 **8. Postman Collection Export** ✅
-- `ledger export --format postman`
+- `wireclaw export --format postman`
 - Group by host as Postman "folders"
 - Preserve headers, body, method
 - Importable into Postman/Insomnia/Bruno
@@ -79,21 +79,21 @@ Core loop works: HTTP/HTTPS proxy capture → SQLite storage → list/search/rep
 ### P3 — Advanced Features
 
 **10. Breakpoints / Intercept Mode** ✅
-- `ledger capture --intercept`
+- `wireclaw capture --intercept`
 - Pause on matching requests (by method, path, host)
 - Show request, allow modify/reject/forward
 - Resume or drop
 - **Why:** Charles Proxy's killer feature
 
 **11. Request Chaining / Variable Extraction** ✅
-- `ledger replay --chain` — replay sequence of requests
+- `wireclaw replay --chain` — replay sequence of requests
 - Extract values from response (JSONPath) into variables
 - Substitute variables into subsequent requests
 - Example: login → extract token → use token in GET /profile
 - **Why:** Real workflows are multi-step
 
 **12. Metrics & Stats**
-- `ledger stats --session foo`
+- `wireclaw stats --session foo`
 - Total requests, avg latency, error rate (4xx/5xx %)
 - Top endpoints by hit count
 - Latency histogram
@@ -103,7 +103,7 @@ Core loop works: HTTP/HTTPS proxy capture → SQLite storage → list/search/rep
 - Capture WebSocket upgrade handshake (HTTP 101 request/response)
 - Proxy WebSocket frames bidirectionally via `hyper::upgrade` + `tokio-tungstenite`
 - Store frames in `ws_frames` table with direction (client→server, server→client), opcode, payload
-- `ledger ws-replay --id <req_id>` replays captured WS conversations
+- `wireclaw ws-replay --id <req_id>` replays captured WS conversations
 - **Why:** Modern APIs (GraphQL subscriptions, real-time data)
 
 **14. Pre/Post Request Scripts** ✅
@@ -115,7 +115,7 @@ Core loop works: HTTP/HTTPS proxy capture → SQLite storage → list/search/rep
 **15. Docker Image + CI/CD Integration**
 - Dockerfile (multi-stage, distroless or alpine)
 - GitHub Actions workflow to build/push to GHCR
-- `docker run -p 8080:8080 -v ledger-data:/data ghcr.io/synthalorian/ledger`
+- `docker run -p 8080:8080 -v wireclaw-data:/data ghcr.io/synthalorian/wireclaw`
 - **Why:** Teams run this in CI to capture test traffic
 
 ---
@@ -142,4 +142,4 @@ Core loop works: HTTP/HTTPS proxy capture → SQLite storage → list/search/rep
 - WebSocket is lower priority — most APIs are still REST/GraphQL over HTTP
 - Docker image enables CI use cases which is a different market segment
 
-*This is the wave.* 🎹🦈
+*This is the wave.* 🎹🦞

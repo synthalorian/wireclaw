@@ -148,10 +148,10 @@ pub async fn proxy_websocket_bridge<
                         headers: {
                             let mut h = HashMap::new();
                             h.insert(
-                                "x-ledger-ws-direction".to_string(),
+                                "x-wireclaw-ws-direction".to_string(),
                                 "client->server".to_string(),
                             );
-                            h.insert("x-ledger-ws-opcode".to_string(), frame.opcode.clone());
+                            h.insert("x-wireclaw-ws-opcode".to_string(), frame.opcode.clone());
                             h
                         },
                         body: frame.payload.clone(),
@@ -163,7 +163,7 @@ pub async fn proxy_websocket_bridge<
                 .await;
 
             if let Err(e) = upstream_sink.send(msg).await {
-                eprintln!("[ledger] WebSocket upstream send error: {e}");
+                eprintln!("[wireclaw] WebSocket upstream send error: {e}");
                 break;
             }
         }
@@ -191,10 +191,10 @@ pub async fn proxy_websocket_bridge<
                         headers: {
                             let mut h = HashMap::new();
                             h.insert(
-                                "x-ledger-ws-direction".to_string(),
+                                "x-wireclaw-ws-direction".to_string(),
                                 "server->client".to_string(),
                             );
-                            h.insert("x-ledger-ws-opcode".to_string(), frame.opcode.clone());
+                            h.insert("x-wireclaw-ws-opcode".to_string(), frame.opcode.clone());
                             h
                         },
                         body: frame.payload.clone(),
@@ -206,7 +206,7 @@ pub async fn proxy_websocket_bridge<
                 .await;
 
             if let Err(e) = client_sink.send(msg).await {
-                eprintln!("[ledger] WebSocket client send error: {e}");
+                eprintln!("[wireclaw] WebSocket client send error: {e}");
                 break;
             }
         }
@@ -253,10 +253,10 @@ pub async fn replay_websocket(target_addr: &str, frames: &[WsFrame], delay_ms: u
     let read_handle = tokio::spawn(async move {
         while let Some(Ok(msg)) = stream.next().await {
             match msg {
-                Message::Text(t) => eprintln!("[ledger] ws recv text: {t}"),
-                Message::Binary(b) => eprintln!("[ledger] ws recv binary: <{} bytes>", b.len()),
+                Message::Text(t) => eprintln!("[wireclaw] ws recv text: {t}"),
+                Message::Binary(b) => eprintln!("[wireclaw] ws recv binary: <{} bytes>", b.len()),
                 Message::Close(_) => {
-                    eprintln!("[ledger] ws recv close");
+                    eprintln!("[wireclaw] ws recv close");
                     break;
                 }
                 _ => {}
@@ -271,7 +271,7 @@ pub async fn replay_websocket(target_addr: &str, frames: &[WsFrame], delay_ms: u
     {
         let msg = frame.to_message();
         eprintln!(
-            "[ledger] ws replay {} -> {}",
+            "[wireclaw] ws replay {} -> {}",
             frame.opcode,
             frame.payload_preview(80)
         );

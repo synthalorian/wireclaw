@@ -2,11 +2,15 @@ mod cert;
 mod chain;
 mod cli;
 mod config;
+mod dashboard;
 mod db;
+mod diff;
 mod export;
 mod intercept;
 mod logger;
 mod models;
+mod openapi;
+mod perf;
 mod proxy;
 mod replay;
 mod scripts;
@@ -19,6 +23,17 @@ use anyhow::Result;
 use clap::Parser;
 use std::path::PathBuf;
 use std::sync::Arc;
+
+#[derive(Debug, Clone, Default)]
+struct CaptureArgs {
+    addr: String,
+    session: String,
+    verbose: bool,
+    intercept: bool,
+    intercept_rule: Option<String>,
+    dashboard: bool,
+    dashboard_addr: String,
+}
 
 #[derive(Debug, Clone, Default)]
 struct ReplayArgs {
@@ -35,6 +50,9 @@ struct ReplayArgs {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Install rustls crypto provider (required for rustls 0.23+)
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
     let cli = cli::Cli::parse();
     let config = config::load_config(&cli.config)?;
 
@@ -44,13 +62,19 @@ async fn main() -> Result<()> {
             verbose,
             intercept,
             intercept_rule,
+            dashboard,
+            dashboard_addr,
         } => {
             run_capture(
-                &cli.addr,
-                &session,
-                verbose,
-                intercept,
-                intercept_rule,
+                CaptureArgs {
+                    addr: cli.addr,
+                    session,
+                    verbose,
+                    intercept,
+                    intercept_rule,
+                    dashboard,
+                    dashboard_addr,
+                },
                 &config,
             )
             .await
@@ -115,41 +139,64 @@ async fn main() -> Result<()> {
             session,
             delay_ms,
         } => run_ws_replay(&id, &session, delay_ms, &config).await,
+        cli::Commands::Dashboard { session, addr } => run_dashboard(&session, &addr, &config).await,
+        cli::Commands::Diff { a, b, session } => run_diff(&a, &b, &session, &config).await,
+        cli::Commands::Openapi { session, output } => {
+            let output_path = output.as_deref().map(std::path::Path::new);
+            run_openapi(&session, output_path, &config).await
+        }
     }
 }
 
-async fn run_capture(
-    addr: &str,
-    session: &str,
-    verbose: bool,
-    intercept: bool,
-    intercept_rule: Option<String>,
-    config: &config::Config,
-) -> Result<()> {
+async fn run_capture(args: CaptureArgs, config: &config::Config) -> Result<()> {
     eprintln!(
-        "[ledger] starting capture on {addr}, session={session}, verbose={verbose}, intercept={intercept}"
+        "[wireclaw] starting capture on {}, session={}, verbose={}, intercept={}",
+        args.addr, args.session, args.verbose, args.intercept
     );
     let data_dir = config.data_dir.join("sessions");
-    let db_path = data_dir.join(format!("{session}.db"));
+    let db_path = data_dir.join(format!("{}.db", args.session));
     let pool = db::init_db(&db_path).await?;
 
-    let session_model = models::Session::new(session.to_string(), db_path.display().to_string());
+    let session_model = models::Session::new(args.session.clone(), db_path.display().to_string());
     db::create_session(&pool, &session_model).await?;
 
-    let listen_addr = proxy::parse_addr(addr)?;
+    let listen_addr = proxy::parse_addr(&args.addr)?;
     let (tx, mut rx) = tokio::sync::mpsc::channel::<models::Exchange>(256);
-    let logger = logger::Logger::new(pool.clone());
+
+    // Optionally launch the dashboard in-process for real-time WebSocket updates.
+    let mut dashboard_sender: Option<tokio::sync::broadcast::Sender<dashboard::DashboardEvent>> =
+        None;
+    let dashboard_handle: Option<tokio::task::JoinHandle<Result<()>>> = if args.dashboard {
+        let dashboard_server = dashboard::DashboardServer::new(pool.clone(), args.session.clone());
+        dashboard_sender = Some(dashboard_server.sender());
+        eprintln!(
+            "[wireclaw] launching dashboard at http://{}",
+            args.dashboard_addr
+        );
+        let addr = args.dashboard_addr.clone();
+        Some(tokio::spawn(
+            async move { dashboard_server.run(&addr).await },
+        ))
+    } else {
+        None
+    };
+
+    let logger = if let Some(sender) = dashboard_sender {
+        logger::Logger::new(pool.clone()).with_broadcast(sender)
+    } else {
+        logger::Logger::new(pool.clone())
+    };
 
     let cert_dir = config.data_dir.join("certs");
     let cert_mgr = Arc::new(cert::CertManager::load_or_create(&cert_dir)?);
 
     // Build intercept rules if enabled
-    let intercept_rules = if intercept {
+    let intercept_rules = if args.intercept {
         let mut rules = Vec::new();
-        if let Some(ref expr) = intercept_rule {
+        if let Some(ref expr) = args.intercept_rule {
             match crate::intercept::InterceptRule::parse(expr) {
                 Ok(rule) => rules.push(rule),
-                Err(e) => eprintln!("[ledger] warning: invalid intercept rule: {e}"),
+                Err(e) => eprintln!("[wireclaw] warning: invalid intercept rule: {e}"),
             }
         }
         // If no specific rule given, intercept everything
@@ -164,7 +211,7 @@ async fn run_capture(
     let proxy = std::sync::Arc::new(proxy::ProxyServer::new(
         listen_addr,
         tx,
-        session.to_string(),
+        args.session.clone(),
         cert_mgr,
         intercept_rules,
     ));
@@ -178,13 +225,13 @@ async fn run_capture(
                 let direction = exchange
                     .request
                     .headers
-                    .get("x-ledger-ws-direction")
+                    .get("x-wireclaw-ws-direction")
                     .map(|s| s.as_str())
                     .unwrap_or("client->server");
                 let opcode = exchange
                     .request
                     .headers
-                    .get("x-ledger-ws-opcode")
+                    .get("x-wireclaw-ws-opcode")
                     .cloned()
                     .unwrap_or_else(|| "binary".to_string());
                 let ws_direction = if direction == "server->client" {
@@ -201,16 +248,16 @@ async fn run_capture(
                     timestamp: exchange.request.timestamp,
                 };
                 if let Err(e) = logger.log_ws_frame(&frame).await {
-                    eprintln!("[ledger] failed to log ws frame: {e}");
+                    eprintln!("[wireclaw] failed to log ws frame: {e}");
                 }
                 continue;
             }
             if let Err(e) = logger.log_exchange(&exchange).await {
-                eprintln!("[ledger] failed to log exchange: {e}");
+                eprintln!("[wireclaw] failed to log exchange: {e}");
             }
-            if verbose {
+            if args.verbose {
                 eprintln!(
-                    "[ledger] {} {} {} ({})",
+                    "[wireclaw] {} {} {} ({})",
                     exchange.request.method,
                     exchange.request.path,
                     exchange.status_label(),
@@ -220,9 +267,17 @@ async fn run_capture(
         }
     });
 
-    tokio::select! {
-        r = proxy_handle => r??,
-        r = logger_handle => r?,
+    if let Some(handle) = dashboard_handle {
+        tokio::select! {
+            r = proxy_handle => r??,
+            r = logger_handle => r?,
+            r = handle => r??,
+        }
+    } else {
+        tokio::select! {
+            r = proxy_handle => r??,
+            r = logger_handle => r?,
+        }
     }
     Ok(())
 }
@@ -235,7 +290,7 @@ async fn run_replay(args: ReplayArgs, config: &config::Config) -> Result<()> {
         let engine = chain::ChainEngine::new(pool);
         let steps = chain::ChainEngine::parse_chain(&chain_expr)?;
         let vars = engine.replay_chain(&steps, args.dry_run).await?;
-        eprintln!("[ledger] chain complete. extracted variables:");
+        eprintln!("[wireclaw] chain complete. extracted variables:");
         for (k, v) in &vars {
             eprintln!("  ${{{k}}} = {v}");
         }
@@ -247,7 +302,7 @@ async fn run_replay(args: ReplayArgs, config: &config::Config) -> Result<()> {
     match (args.id, args.filter) {
         (Some(request_id), _) => {
             eprintln!(
-                "[ledger] replaying request {request_id} x{} (dry_run={}, diff={}, edit={})",
+                "[wireclaw] replaying request {request_id} x{} (dry_run={}, diff={}, edit={})",
                 args.count, args.dry_run, args.diff, args.edit
             );
             let pre = args.pre_script.as_deref();
@@ -271,7 +326,7 @@ async fn run_replay(args: ReplayArgs, config: &config::Config) -> Result<()> {
         }
         (None, Some(filter_expr)) => {
             eprintln!(
-                "[ledger] replaying filtered requests: {filter_expr} (dry_run={}, diff={})",
+                "[wireclaw] replaying filtered requests: {filter_expr} (dry_run={}, diff={})",
                 args.dry_run, args.diff
             );
             engine
@@ -306,7 +361,7 @@ async fn run_list(
     let exchanges = db::list_exchanges(&pool, session, limit).await?;
 
     eprintln!(
-        "[ledger] session={session}, showing {limit} exchanges (headers={headers}, bodies={bodies})"
+        "[wireclaw] session={session}, showing {limit} exchanges (headers={headers}, bodies={bodies})"
     );
     for exchange in &exchanges {
         let status = exchange.status_label();
@@ -340,7 +395,7 @@ async fn run_list(
             );
         }
     }
-    eprintln!("[ledger] {} exchanges", exchanges.len());
+    eprintln!("[wireclaw] {} exchanges", exchanges.len());
     Ok(())
 }
 
@@ -359,7 +414,7 @@ async fn run_search(
 
     let results = engine.search(query, field, session).await?;
     eprintln!(
-        "[ledger] search '{query}' in field '{field}', session '{session}': {} results",
+        "[wireclaw] search '{query}' in field '{field}', session '{session}': {} results",
         results.len()
     );
     for exchange in &results {
@@ -411,18 +466,18 @@ async fn run_ca(command: cli::CaCommands, config: &config::Config) -> Result<()>
     match command {
         cli::CaCommands::Generate => {
             eprintln!(
-                "[ledger] CA certificate ready at {}",
+                "[wireclaw] CA certificate ready at {}",
                 mgr.ca_cert_path().display()
             );
             eprintln!(
-                "[ledger] Install this CA in your browser/system to trust intercepted HTTPS traffic:"
+                "[wireclaw] Install this CA in your browser/system to trust intercepted HTTPS traffic:"
             );
             eprintln!();
             println!("{}", mgr.ca_cert_pem());
             eprintln!();
-            eprintln!("[ledger] Trust instructions:");
+            eprintln!("[wireclaw] Trust instructions:");
             eprintln!(
-                "  Linux (system-wide):  sudo cp {} /usr/local/share/ca-certificates/ledger.crt && sudo update-ca-certificates",
+                "  Linux (system-wide):  sudo cp {} /usr/local/share/ca-certificates/wireclaw.crt && sudo update-ca-certificates",
                 mgr.ca_cert_path().display()
             );
             eprintln!(
@@ -460,15 +515,15 @@ async fn run_stats(session: &str, config: &config::Config) -> Result<()> {
 async fn run_init(config: &config::Config) -> Result<()> {
     let config_path = dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("~/.config"))
-        .join("ledger")
+        .join("wireclaw")
         .join("config.toml");
 
     if config_path.exists() {
         eprintln!(
-            "[ledger] config already exists at {}",
+            "[wireclaw] config already exists at {}",
             config_path.display()
         );
-        eprintln!("[ledger] delete it first if you want to regenerate");
+        eprintln!("[wireclaw] delete it first if you want to regenerate");
         return Ok(());
     }
 
@@ -478,14 +533,14 @@ async fn run_init(config: &config::Config) -> Result<()> {
             .ok_or_else(|| anyhow::anyhow!("config path has no parent directory"))?,
     )?;
 
-    let config_toml = r#"# Ledger configuration file
-# Generated by `ledger init`
+    let config_toml = r#"# Wireclaw configuration file
+# Generated by `wireclaw init`
 
 # Address the proxy listens on
 listen_addr = "127.0.0.1:8080"
 
 # Directory for session databases and CA certificates
-# Default: platform-specific data dir (e.g. ~/.local/share/ledger on Linux)
+# Default: platform-specific data dir (e.g. ~/.local/share/wireclaw on Linux)
 data_dir = "{data_dir}"
 
 [session]
@@ -520,9 +575,9 @@ max_redirects = 10
 
     std::fs::write(&config_path, contents)?;
 
-    eprintln!("[ledger] config written to {}", config_path.display());
+    eprintln!("[wireclaw] config written to {}", config_path.display());
     eprintln!(
-        "[ledger] edit it to customize proxy settings, session defaults, and replay behavior"
+        "[wireclaw] edit it to customize proxy settings, session defaults, and replay behavior"
     );
 
     Ok(())
@@ -547,7 +602,7 @@ async fn run_ws_replay(
 
     let host = exchange.request.host;
     eprintln!(
-        "[ledger] ws-replay: connecting to {} for request {}",
+        "[wireclaw] ws-replay: connecting to {} for request {}",
         host, request_id
     );
 
@@ -557,8 +612,65 @@ async fn run_ws_replay(
         anyhow::bail!("no WebSocket frames found for request {}", request_id);
     }
 
-    eprintln!("[ledger] ws-replay: replaying {} frames", frames.len());
+    eprintln!("[wireclaw] ws-replay: replaying {} frames", frames.len());
     crate::websocket::replay_websocket(&host, &frames, delay_ms).await?;
-    eprintln!("[ledger] ws-replay: complete");
+    eprintln!("[wireclaw] ws-replay: complete");
+    Ok(())
+}
+
+async fn run_dashboard(session: &str, addr: &str, config: &config::Config) -> Result<()> {
+    let db_path = config
+        .data_dir
+        .join("sessions")
+        .join(format!("{session}.db"));
+    let pool = db::init_db(&db_path).await?;
+
+    eprintln!(
+        "[wireclaw] starting dashboard for session '{}' on {}",
+        session, addr
+    );
+    dashboard::run_dashboard(pool, session.to_string(), addr).await
+}
+
+async fn run_diff(a: &str, b: &str, session: &str, config: &config::Config) -> Result<()> {
+    let db_path = config
+        .data_dir
+        .join("sessions")
+        .join(format!("{session}.db"));
+    let pool = db::init_db(&db_path).await?;
+
+    let exchange_a = db::get_exchange_by_request_id(&pool, a)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("request {} not found", a))?;
+
+    let exchange_b = db::get_exchange_by_request_id(&pool, b)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("request {} not found", b))?;
+
+    let result = diff::compare_exchanges(&exchange_a, &exchange_b);
+    println!("{}", diff::format_diff_terminal(&result));
+    Ok(())
+}
+
+async fn run_openapi(
+    session: &str,
+    output: Option<&std::path::Path>,
+    config: &config::Config,
+) -> Result<()> {
+    let db_path = config
+        .data_dir
+        .join("sessions")
+        .join(format!("{session}.db"));
+    let pool = db::init_db(&db_path).await?;
+
+    let spec = openapi::generate_from_session(&pool, session).await?;
+    let json = serde_json::to_string_pretty(&spec)?;
+
+    if let Some(path) = output {
+        std::fs::write(path, json)?;
+        eprintln!("[wireclaw] OpenAPI spec written to {}", path.display());
+    } else {
+        println!("{}", json);
+    }
     Ok(())
 }

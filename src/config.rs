@@ -37,9 +37,13 @@ pub struct ReplayConfig {
 
 impl Default for Config {
     fn default() -> Self {
-        let data_dir = dirs::data_dir()
-            .unwrap_or_else(|| PathBuf::from("~/.local/share"))
-            .join("ledger");
+        let data_dir = std::env::var_os("WIRECLAW_DATA_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                dirs::data_dir()
+                    .unwrap_or_else(|| PathBuf::from("~/.local/share"))
+                    .join("wireclaw")
+            });
 
         Self {
             listen_addr: "127.0.0.1:8080".to_string(),

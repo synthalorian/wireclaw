@@ -134,7 +134,7 @@ impl App {
             .style(Style::default().fg(Color::Cyan));
         let title = Paragraph::new(Line::from(vec![
             Span::styled(
-                " LEDGER ",
+                " WIRECLAW ",
                 Style::default()
                     .fg(Color::Cyan)
                     .add_modifier(Modifier::BOLD),
@@ -360,6 +360,17 @@ impl App {
         let status = exchange.status_label();
         let path = &exchange.request.path;
         let host = &exchange.request.host;
+        let latency_str = exchange
+            .response
+            .as_ref()
+            .map(|r| format!(" {}ms", r.latency_ms))
+            .unwrap_or_default();
+        let latency_style = match exchange.response.as_ref().map(|r| r.latency_ms) {
+            Some(ms) if ms > 500 => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            Some(ms) if ms > 200 => Style::default().fg(Color::Yellow),
+            Some(_) => Style::default().fg(Color::Green),
+            None => Style::default().fg(Color::DarkGray),
+        };
         let method_style = match method.as_str() {
             "GET" => Style::default().fg(Color::Green),
             "POST" => Style::default().fg(Color::Yellow),
@@ -379,6 +390,7 @@ impl App {
             Span::styled(format!("{method:>6} "), method_style),
             Span::styled(format!("{status:>3} "), status_style),
             Span::raw(format!("{host}{path}")),
+            Span::styled(latency_str, latency_style),
         ]))
     }
 

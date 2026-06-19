@@ -12,7 +12,7 @@ use rcgen::{CertificateParams, DistinguishedName, DnType, Issuer, KeyPair, SanTy
 use rustls::ServerConfig;
 use rustls::pki_types::CertificateDer;
 
-/// Manages the Ledger CA and per-host certificates.
+/// Manages the Wireclaw CA and per-host certificates.
 pub struct CertManager {
     #[allow(dead_code)]
     ca_cert: rcgen::Certificate,
@@ -47,11 +47,11 @@ impl CertManager {
             .context("generating CA key pair")?;
 
         let mut dn = DistinguishedName::new();
-        dn.push(DnType::CommonName, "Ledger Proxy CA");
-        dn.push(DnType::OrganizationName, "Ledger");
+        dn.push(DnType::CommonName, "Wireclaw Proxy CA");
+        dn.push(DnType::OrganizationName, "Wireclaw");
         dn.push(DnType::CountryName, "US");
 
-        let mut params = CertificateParams::new(vec!["ledger.proxy".to_string()])
+        let mut params = CertificateParams::new(vec!["wireclaw.proxy".to_string()])
             .context("creating CA certificate params")?;
         params.distinguished_name = dn;
         params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
@@ -102,11 +102,11 @@ impl CertManager {
 
         // Reconstruct params and cert from the stored PEM
         let mut dn = DistinguishedName::new();
-        dn.push(DnType::CommonName, "Ledger Proxy CA");
-        dn.push(DnType::OrganizationName, "Ledger");
+        dn.push(DnType::CommonName, "Wireclaw Proxy CA");
+        dn.push(DnType::OrganizationName, "Wireclaw");
         dn.push(DnType::CountryName, "US");
 
-        let mut params = CertificateParams::new(vec!["ledger.proxy".to_string()])
+        let mut params = CertificateParams::new(vec!["wireclaw.proxy".to_string()])
             .context("creating CA certificate params")?;
         params.distinguished_name = dn;
         params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);

@@ -1,4 +1,4 @@
-# Ledger — Local HTTP proxy for API traffic capture, replay, and inspection
+# Wireclaw — Local HTTP proxy for API traffic capture, replay, and inspection
 # Multi-stage build: compile in Rust builder, copy binary to distroless runtime
 
 # ── Stage 1: Build ───────────────────────────────────────────────────────────
@@ -18,20 +18,20 @@ ENV RUSTFLAGS="-C target-feature=+crt-static"
 RUN cargo build --release --target x86_64-unknown-linux-musl
 
 # Strip debug symbols for smaller binary
-RUN strip /app/target/x86_64-unknown-linux-musl/release/ledger
+RUN strip /app/target/x86_64-unknown-linux-musl/release/wireclaw
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────────────
 FROM gcr.io/distroless/static-debian12:nonroot
 
 # Copy the compiled binary
-COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/ledger /usr/local/bin/ledger
+COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/wireclaw /usr/local/bin/wireclaw
 
 # Data volume for sessions, certs, and config
 VOLUME ["/data"]
-ENV LEDGER_DATA_DIR=/data
+ENV WIRECLAW_DATA_DIR=/data
 
 # Expose the default proxy port
 EXPOSE 8080
 
-ENTRYPOINT ["/usr/local/bin/ledger"]
+ENTRYPOINT ["/usr/local/bin/wireclaw"]
 CMD ["capture"]

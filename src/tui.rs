@@ -35,6 +35,16 @@ pub struct App {
     // Grouping state
     group_by_host: bool,
     collapsed_groups: std::collections::HashSet<String>,
+    // Session picker state
+    session_picker: SessionPickerState,
+    available_sessions: Vec<String>,
+    data_dir: std::path::PathBuf,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum SessionPickerState {
+    None,
+    Active,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -50,7 +60,7 @@ enum SearchMode {
 }
 
 impl App {
-    pub fn new(pool: SqlitePool, session: String) -> Self {
+    pub fn new(pool: SqlitePool, session: String, data_dir: std::path::PathBuf) -> Self {
         Self {
             pool,
             session,
@@ -65,6 +75,9 @@ impl App {
             search_cursor: 0,
             group_by_host: true,
             collapsed_groups: std::collections::HashSet::new(),
+            session_picker: SessionPickerState::None,
+            available_sessions: Vec::new(),
+            data_dir,
         }
     }
 
@@ -72,6 +85,14 @@ impl App {
         // Load initial data
         self.exchanges = db::list_exchanges(&self.pool, &self.session, 500).await?;
         self.apply_filter();
+
+        // If no requests and other sessions exist, show session picker
+        if self.exchanges.is_empty() {
+            self.available_sessions = self.scan_sessions();
+            if !self.available_sessions.is_empty() {
+                self.session_picker = SessionPickerState::Active;
+            }
+        }
 
         enable_raw_mode()?;
         let mut stdout = io::stdout();
@@ -83,13 +104,27 @@ impl App {
 
         let mut last_refresh = std::time::Instant::now();
         let refresh_interval = std::time::Duration::from_secs(2);
+        let mut last_session = self.session.clone();
 
         loop {
             terminal.draw(|f| self.draw(f))?;
             self.handle_events()?;
 
+            // Handle session change from picker
+            if self.session != last_session {
+                // Re-initialize DB connection for new session
+                let db_path = self.data_dir.join("sessions").join(format!("{}.db", self.session));
+                if let Ok(new_pool) = db::init_db(&db_path).await {
+                    self.pool = new_pool;
+                }
+                self.exchanges = db::list_exchanges(&self.pool, &self.session, 500).await.unwrap_or_default();
+                self.apply_filter();
+                last_session = self.session.clone();
+                last_refresh = std::time::Instant::now();
+            }
+
             // Auto-refresh: poll DB every 2 seconds for new exchanges
-            if last_refresh.elapsed() >= refresh_interval {
+            if self.session_picker == SessionPickerState::None && last_refresh.elapsed() >= refresh_interval {
                 if let Ok(new_exchanges) = db::list_exchanges(&self.pool, &self.session, 500).await
                     && new_exchanges.len() != self.exchanges.len()
                 {
@@ -115,6 +150,28 @@ impl App {
         crossterm::execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
         terminal.show_cursor()?;
         Ok(())
+    }
+
+    fn scan_sessions(&self) -> Vec<String> {
+        let sessions_dir = self.data_dir.join("sessions");
+        let mut sessions = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(&sessions_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if let Some(ext) = path.extension() {
+                    if ext == "db" {
+                        if let Some(stem) = path.file_stem() {
+                            let name = stem.to_string_lossy().to_string();
+                            if name != self.session {
+                                sessions.push(name);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        sessions.sort();
+        sessions
     }
 
     fn draw(&self, frame: &mut ratatui::Frame) {
@@ -172,6 +229,50 @@ impl App {
         ]))
         .block(title_block);
         frame.render_widget(title, outer[0]);
+
+        // Session picker overlay
+        if self.session_picker == SessionPickerState::Active {
+            let picker_area = self.centered_rect(70, 12, size);
+            frame.render_widget(Clear, picker_area);
+            let picker_block = Block::default()
+                .borders(Borders::ALL)
+                .title(" Select Session ")
+                .style(Style::default().fg(Color::Yellow));
+
+            let mut lines: Vec<Line> = vec![
+                Line::from(Span::styled(
+                    format!("No requests in session '{}'", self.session),
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    "Other sessions found:",
+                    Style::default().fg(Color::Cyan),
+                )),
+            ];
+
+            for (i, session) in self.available_sessions.iter().enumerate() {
+                let style = if Some(i) == self.list_state.selected() {
+                    Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::White)
+                };
+                lines.push(Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(format!("{}: {}", i + 1, session), style),
+                ]));
+            }
+
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "↑↓: Select  Enter: Open  q: Quit",
+                Style::default().fg(Color::DarkGray),
+            )));
+
+            let picker_text = Paragraph::new(Text::from(lines)).block(picker_block);
+            frame.render_widget(picker_text, picker_area);
+            return; // Skip normal rendering
+        }
 
         let main = Layout::default()
             .direction(Direction::Horizontal)
@@ -599,6 +700,40 @@ impl App {
     }
 
     fn handle_normal_input(&mut self, code: KeyCode) {
+        // Session picker mode
+        if self.session_picker == SessionPickerState::Active {
+            match code {
+                KeyCode::Char('q') => self.should_quit = true,
+                KeyCode::Up => {
+                    let len = self.available_sessions.len() as i32;
+                    if len > 0 {
+                        let current = self.list_state.selected().map_or(0, |i| i as i32);
+                        let next = ((current - 1).clamp(0, len - 1)) as usize;
+                        self.list_state.select(Some(next));
+                    }
+                }
+                KeyCode::Down => {
+                    let len = self.available_sessions.len() as i32;
+                    if len > 0 {
+                        let current = self.list_state.selected().map_or(0, |i| i as i32);
+                        let next = ((current + 1).clamp(0, len - 1)) as usize;
+                        self.list_state.select(Some(next));
+                    }
+                }
+                KeyCode::Enter => {
+                    if let Some(idx) = self.list_state.selected() {
+                        if let Some(session) = self.available_sessions.get(idx).cloned() {
+                            self.session = session;
+                            self.session_picker = SessionPickerState::None;
+                            self.list_state.select(Some(0));
+                        }
+                    }
+                }
+                _ => {}
+            }
+            return;
+        }
+
         match code {
             KeyCode::Char('q') => self.should_quit = true,
             KeyCode::Up => {

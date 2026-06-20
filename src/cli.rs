@@ -63,6 +63,9 @@ pub enum Commands {
         #[arg(short, long)]
         id: Option<String>,
 
+        #[arg(short, long, default_value = "default")]
+        session: String,
+
         #[arg(long, default_value_t = 1)]
         count: u32,
 

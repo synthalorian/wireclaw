@@ -1,4 +1,4 @@
-# Wireclaw — Hermes Hackathon Submission
+# Wireclaw — Hermes Agent Accelerated Business Hackathon Submission
 
 ## 🦞 The Problem
 
@@ -8,7 +8,7 @@ API documentation is always out of date. Developers spend hours writing OpenAPI 
 
 **Wireclaw** — an API traffic observability platform that auto-documents your API by watching it work. No code changes. No SDKs. Just point your HTTP client at the proxy and watch the magic happen.
 
-## 🎯 Key Features for Hackathon
+## 🎯 Key Features
 
 ### 1. Real-Time Web Dashboard
 - Live traffic visualization with WebSocket updates

@@ -38,6 +38,7 @@ struct CaptureArgs {
 #[derive(Debug, Clone, Default)]
 struct ReplayArgs {
     id: Option<String>,
+    session: String,
     count: u32,
     dry_run: bool,
     diff: bool,
@@ -81,6 +82,7 @@ async fn main() -> Result<()> {
         }
         cli::Commands::Replay {
             id,
+            session,
             count,
             dry_run,
             diff,
@@ -93,6 +95,7 @@ async fn main() -> Result<()> {
             run_replay(
                 ReplayArgs {
                     id,
+                    session,
                     count,
                     dry_run,
                     diff,
@@ -283,7 +286,10 @@ async fn run_capture(args: CaptureArgs, config: &config::Config) -> Result<()> {
 }
 
 async fn run_replay(args: ReplayArgs, config: &config::Config) -> Result<()> {
-    let db_path = config.data_dir.join("sessions").join("default.db");
+    let db_path = config
+        .data_dir
+        .join("sessions")
+        .join(format!("{}.db", args.session));
     let pool = db::init_db(&db_path).await?;
 
     if let Some(chain_expr) = args.chain {
@@ -455,7 +461,7 @@ async fn run_tui(session: &str, config: &config::Config) -> Result<()> {
         .join(format!("{session}.db"));
     let pool = db::init_db(&db_path).await?;
 
-    let mut app = tui::App::new(pool, session.to_string());
+    let mut app = tui::App::new(pool, session.to_string(), config.data_dir.clone());
     app.run().await?;
     Ok(())
 }

@@ -365,10 +365,11 @@ async fn run_list(
     );
     for exchange in &exchanges {
         let status = exchange.status_label();
+        let id = &exchange.request.id;
         if headers || bodies {
             eprintln!(
-                "  === {} {} {} ({}) ===",
-                exchange.request.method, exchange.request.path, status, exchange.request.host
+                "  === {} {} {} ({}) [{}] ===",
+                exchange.request.method, exchange.request.path, status, exchange.request.host, id
             );
             if headers {
                 for (k, v) in &exchange.request.headers {
@@ -390,8 +391,8 @@ async fn run_list(
             }
         } else {
             eprintln!(
-                "  {} {} {} ({})",
-                exchange.request.method, exchange.request.path, status, exchange.request.host,
+                "  {} {} {} ({}) [{}]",
+                exchange.request.method, exchange.request.path, status, exchange.request.host, id
             );
         }
     }

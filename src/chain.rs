@@ -59,7 +59,7 @@ pub fn substitute_vars(req: &mut CapturedRequest, vars: &HashMap<String, String>
     }
 
     // Substitute in headers
-    for (_k, v) in req.headers.iter_mut() {
+    for v in req.headers.values_mut() {
         for (name, value) in vars {
             let placeholder = format!("{{{name}}}");
             *v = v.replace(&placeholder, value);

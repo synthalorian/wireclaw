@@ -113,18 +113,25 @@ impl App {
             // Handle session change from picker
             if self.session != last_session {
                 // Re-initialize DB connection for new session
-                let db_path = self.data_dir.join("sessions").join(format!("{}.db", self.session));
+                let db_path = self
+                    .data_dir
+                    .join("sessions")
+                    .join(format!("{}.db", self.session));
                 if let Ok(new_pool) = db::init_db(&db_path).await {
                     self.pool = new_pool;
                 }
-                self.exchanges = db::list_exchanges(&self.pool, &self.session, 500).await.unwrap_or_default();
+                self.exchanges = db::list_exchanges(&self.pool, &self.session, 500)
+                    .await
+                    .unwrap_or_default();
                 self.apply_filter();
                 last_session = self.session.clone();
                 last_refresh = std::time::Instant::now();
             }
 
             // Auto-refresh: poll DB every 2 seconds for new exchanges
-            if self.session_picker == SessionPickerState::None && last_refresh.elapsed() >= refresh_interval {
+            if self.session_picker == SessionPickerState::None
+                && last_refresh.elapsed() >= refresh_interval
+            {
                 if let Ok(new_exchanges) = db::list_exchanges(&self.pool, &self.session, 500).await
                     && new_exchanges.len() != self.exchanges.len()
                 {
@@ -158,14 +165,13 @@ impl App {
         if let Ok(entries) = std::fs::read_dir(&sessions_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if let Some(ext) = path.extension() {
-                    if ext == "db" {
-                        if let Some(stem) = path.file_stem() {
-                            let name = stem.to_string_lossy().to_string();
-                            if name != self.session {
-                                sessions.push(name);
-                            }
-                        }
+                if let Some(ext) = path.extension()
+                    && ext == "db"
+                    && let Some(stem) = path.file_stem()
+                {
+                    let name = stem.to_string_lossy().to_string();
+                    if name != self.session {
+                        sessions.push(name);
                     }
                 }
             }
@@ -253,7 +259,10 @@ impl App {
 
             for (i, session) in self.available_sessions.iter().enumerate() {
                 let style = if Some(i) == self.list_state.selected() {
-                    Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default().fg(Color::White)
                 };
@@ -721,12 +730,12 @@ impl App {
                     }
                 }
                 KeyCode::Enter => {
-                    if let Some(idx) = self.list_state.selected() {
-                        if let Some(session) = self.available_sessions.get(idx).cloned() {
-                            self.session = session;
-                            self.session_picker = SessionPickerState::None;
-                            self.list_state.select(Some(0));
-                        }
+                    if let Some(idx) = self.list_state.selected()
+                        && let Some(session) = self.available_sessions.get(idx).cloned()
+                    {
+                        self.session = session;
+                        self.session_picker = SessionPickerState::None;
+                        self.list_state.select(Some(0));
                     }
                 }
                 _ => {}

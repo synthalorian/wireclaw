@@ -92,7 +92,7 @@ Core loop works: HTTP/HTTPS proxy capture → SQLite storage → list/search/rep
 - Example: login → extract token → use token in GET /profile
 - **Why:** Real workflows are multi-step
 
-**12. Metrics & Stats**
+**12. Metrics & Stats** ✅
 - `wireclaw stats --session foo`
 - Total requests, avg latency, error rate (4xx/5xx %)
 - Top endpoints by hit count
@@ -132,6 +132,7 @@ Core loop works: HTTP/HTTPS proxy capture → SQLite storage → list/search/rep
 | 6 | Advanced | #10, #11, #12 | ✅ Done |
 | 7 | WebSocket + scripts | #13, #14 | ✅ Done |
 | 8 | Packaging | #15, release | ✅ v0.2.0 tagged |
+| 9 | Final polish + v1.0 | #12 verified, clippy/fmt clean, version bump | ✅ v1.0.0 |
 
 ---
 

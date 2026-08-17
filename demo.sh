@@ -59,7 +59,7 @@ curl -s -o /dev/null "http://127.0.0.1:8765/?path=/api/users/123"
 
 echo "  → PUT /api/users/123 (update user)"
 curl -s -o /dev/null -X PUT -H "Content-Type: application/json" \
-    -d '{"name":"synthalorian"}' \
+    -d '{"name":"synth"}' \
     http://127.0.0.1:8765/
 
 echo "  → DELETE /api/users/123"

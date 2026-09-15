@@ -143,4 +143,4 @@ Core loop works: HTTP/HTTPS proxy capture → SQLite storage → list/search/rep
 - WebSocket is lower priority — most APIs are still REST/GraphQL over HTTP
 - Docker image enables CI use cases which is a different market segment
 
-*This is the wave.* 🎹🦞
+*This is the wave.* ⚫🦞
